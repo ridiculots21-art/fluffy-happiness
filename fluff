@@ -166,3 +166,132 @@ def run_experiment_over_zones(...):
         parts = pool.map(run_zone_forecasting_lr_experiment, jobs)
 
     final = pd.concat(parts, ignore_index=True)
+---------------------------------------------------------------------------------------------------------------
+# Polars: overall zero vs nonzero, per-zone, per-key
+import polars as pl
+import matplotlib.pyplot as plt
+
+# use existing so_fcst_df (polars)
+df = so_fcst_df
+
+# overall counts
+overall = df.with_columns(
+    is_zero = (pl.col("so_nw_ct") == 0).cast(pl.Int32)
+).select([
+    pl.sum("is_zero").alias("n_zero"),
+    (pl.count() - pl.sum("is_zero")).alias("n_nonzero"),
+    pl.count().alias("n_total")
+]).with_columns(
+    pl.col("n_zero")/pl.col("n_total").alias("zero_ratio")
+)
+print("Overall (zeros vs non-zero):")
+print(overall.to_pandas())
+
+# per-zone zero ratio
+zone_zero = df.with_columns(
+    is_zero = (pl.col("so_nw_ct") == 0).cast(pl.Int32)
+).group_by("zone").agg(
+    pl.sum("is_zero").alias("n_zero"),
+    (pl.count() - pl.sum("is_zero")).alias("n_nonzero"),
+    pl.count().alias("n_total")
+).with_columns(
+    (pl.col("n_zero")/pl.col("n_total")).alias("zero_ratio"),
+    (pl.col("n_nonzero")/pl.col("n_total")).alias("nonzero_ratio")
+).sort("zero_ratio", descending=True)
+
+zone_zero.write_csv("zero_ratio_by_zone.csv")
+print("Saved zero_ratio_by_zone.csv")
+
+# per-key zero ratio (this is the most important)
+key_zero = df.with_columns(
+    is_zero = (pl.col("so_nw_ct") == 0).cast(pl.Int32)
+).group_by("key").agg(
+    pl.sum("is_zero").alias("n_zero"),
+    (pl.count() - pl.sum("is_zero")).alias("n_nonzero"),
+    pl.count().alias("n_total")
+).with_columns(
+    (pl.col("n_zero")/pl.col("n_total")).alias("zero_ratio"),
+    pl.col("n_nonzero").cast(pl.Int64).alias("nonzero_count")
+).sort("zero_ratio", descending=True)
+
+key_zero.write_csv("zero_ratio_by_key.csv")
+print("Saved zero_ratio_by_key.csv")
+
+# Quick stats for key_zero
+print(key_zero.describe().to_pandas())
+
+# Visual: histogram of key zero_ratio (to see how many keys are dominated by zeros)
+kpd = key_zero.select(["key","zero_ratio"]).to_pandas()
+plt.figure(figsize=(8,4))
+plt.hist(kpd["zero_ratio"], bins=50)
+plt.xlabel("Zero ratio per key")
+plt.ylabel("Number of keys")
+plt.title("Distribution of zero_ratio across keys")
+plt.show()
+
+# Also: count keys with >80% zeros, >90% zeros, all zeros
+cnts = {
+    "keys_all_zero": (kpd["zero_ratio"] == 1.0).sum(),
+    "keys_gt90": (kpd["zero_ratio"] > 0.90).sum(),
+    "keys_gt80": (kpd["zero_ratio"] > 0.80).sum(),
+    "total_keys": len(kpd)
+}
+print("Key-level zero stats:", cnts)
+
+
+----------------
+
+import pandas as pd
+import matplotlib.pyplot as plt
+so = so_pd   # your pandas df
+
+overall = pd.Series({
+    "n_zero": (so["so_nw_ct"] == 0).sum(),
+    "n_nonzero": (so["so_nw_ct"] != 0).sum(),
+    "n_total": len(so)
+})
+overall["zero_ratio"] = overall["n_zero"] / overall["n_total"]
+print(overall)
+
+zone_zero = so.assign(is_zero=so["so_nw_ct"] == 0).groupby("zone").agg(
+    n_zero=("is_zero","sum"),
+    n_total=("is_zero","size")
+).assign(
+    n_nonzero=lambda d: d["n_total"] - d["n_zero"],
+    zero_ratio=lambda d: d["n_zero"]/d["n_total"]
+).sort_values("zero_ratio", ascending=False)
+zone_zero.to_csv("zero_ratio_by_zone.csv")
+print("Saved zero_ratio_by_zone.csv")
+
+key_zero = so.assign(is_zero=so["so_nw_ct"] == 0).groupby("key").agg(
+    n_zero=("is_zero","sum"),
+    n_total=("is_zero","size")
+).assign(
+    n_nonzero=lambda d: d["n_total"]-d["n_zero"],
+    zero_ratio=lambda d: d["n_zero"]/d["n_total"]
+).sort_values("zero_ratio", ascending=False)
+
+key_zero.to_csv("zero_ratio_by_key.csv")
+print("Saved zero_ratio_by_key.csv")
+
+# plot distribution of zero_ratio
+plt.figure(figsize=(8,4))
+plt.hist(key_zero["zero_ratio"], bins=50)
+plt.xlabel("Zero ratio per key")
+plt.ylabel("Number of keys")
+plt.title("Distribution of zero_ratio across keys")
+plt.show()
+
+print("keys all-zero   :", (key_zero["zero_ratio"] == 1.0).sum())
+print("keys > 90% zero :", (key_zero["zero_ratio"] > 0.90).sum())
+print("keys > 80% zero :", (key_zero["zero_ratio"] > 0.80).sum())
+
+
+
+
+
+
+# top 20 keys with highest zero ratio but with at least 1 non-zero
+top20 = key_zero.filter(pl.col("n_nonzero")>0).sort("zero_ratio", descending=True).head(20).to_pandas()
+print(top20)
+

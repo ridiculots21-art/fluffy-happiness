@@ -1,0 +1,67 @@
+import pandas as pd
+
+def compare_lr_coefficients(model_base, model_1y_os, feature_names):
+    df = pd.DataFrame({
+        "feature": feature_names,
+        "beta_baseline": model_base.coef_,
+        "beta_1y_os": model_1y_os.coef_,
+    })
+    df["delta_beta"] = df["beta_1y_os"] - df["beta_baseline"]
+    df["sign_change"] = (
+        (df["beta_baseline"] > 0) != (df["beta_1y_os"] > 0)
+    )
+    return df.sort_values("delta_beta", key=abs, ascending=False)
+
+coef_cmp = compare_lr_coefficients(
+    lr_baseline_model,
+    lr_1y_os_model,
+    feature_names
+)
+
+coef_cmp
+
+
+print("Intercept baseline:", lr_baseline_model.intercept_)
+print("Intercept 1y + OS:", lr_1y_os_model.intercept_)
+
+
+
+import matplotlib.pyplot as plt
+
+plot_df = pd.concat([
+    perf_base[["key", "mape_avg"]].assign(model="LR baseline"),
+    perf_1y_os[["key", "mape_avg"]].assign(model="LR 1y + OS")
+])
+
+plt.figure(figsize=(8, 5))
+plot_df.boxplot(
+    column="mape_avg",
+    by="model",
+    grid=False
+)
+plt.suptitle("")
+plt.title("Per-key MAPE distribution")
+plt.ylabel("MAPE")
+plt.show()
+
+
+
+plt.figure(figsize=(8, 5))
+
+for name, g in plot_df.groupby("model"):
+    plt.hist(g["mape_avg"], bins=30, alpha=0.5, label=name)
+
+plt.legend()
+plt.xlabel("MAPE")
+plt.ylabel("Count")
+plt.title("MAPE distribution comparison")
+plt.show()
+
+
+
+
+plot_df.groupby("model")["mape_avg"].agg(
+    mean_mape="mean",
+    median_mape="median",
+    p90=lambda x: x.quantile(0.9)
+)

@@ -1,67 +1,41 @@
 import pandas as pd
 
-def compare_lr_coefficients(model_base, model_1y_os, feature_names):
-    df = pd.DataFrame({
-        "feature": feature_names,
-        "beta_baseline": model_base.coef_,
-        "beta_1y_os": model_1y_os.coef_,
-    })
-    df["delta_beta"] = df["beta_1y_os"] - df["beta_baseline"]
-    df["sign_change"] = (
-        (df["beta_baseline"] > 0) != (df["beta_1y_os"] > 0)
-    )
-    return df.sort_values("delta_beta", key=abs, ascending=False)
-
-coef_cmp = compare_lr_coefficients(
-    lr_baseline_model,
-    lr_1y_os_model,
-    feature_names
-)
-
-coef_cmp
+perf_base = pd.read_csv("LR_baseline_perf.csv")
+perf_1y = pd.read_csv("LR_1yr_perf.csv")
+perf_os = pd.read_csv("LR_os_perf.csv")
+perf_1y_os = pd.read_csv("LR_1yr_os_perf.csv")
 
 
-print("Intercept baseline:", lr_baseline_model.intercept_)
-print("Intercept 1y + OS:", lr_1y_os_model.intercept_)
+comparison_df = pd.concat([
+    perf_base[["key", "mape_avg"]].assign(model="Baseline"),
+    perf_1y[["key", "mape_avg"]].assign(model="1-Year"),
+    perf_os[["key", "mape_avg"]].assign(model="OS"),
+    perf_1y_os[["key", "mape_avg"]].assign(model="1-Year + OS"),
+])
+
+
+summary = comparison_df.groupby("model")["mape_avg"].agg(
+    mean_mape="mean",
+    median_mape="median",
+    p90=lambda x: x.quantile(0.9)
+).sort_values("median_mape")
+
+summary
 
 
 
 import matplotlib.pyplot as plt
 
-plot_df = pd.concat([
-    perf_base[["key", "mape_avg"]].assign(model="LR baseline"),
-    perf_1y_os[["key", "mape_avg"]].assign(model="LR 1y + OS")
-])
-
 plt.figure(figsize=(8, 5))
-plot_df.boxplot(
+
+comparison_df.boxplot(
     column="mape_avg",
     by="model",
     grid=False
 )
+
 plt.suptitle("")
-plt.title("Per-key MAPE distribution")
+plt.title("Per-key MAPE Distribution")
 plt.ylabel("MAPE")
+plt.xticks(rotation=45)
 plt.show()
-
-
-
-plt.figure(figsize=(8, 5))
-
-for name, g in plot_df.groupby("model"):
-    plt.hist(g["mape_avg"], bins=30, alpha=0.5, label=name)
-
-plt.legend()
-plt.xlabel("MAPE")
-plt.ylabel("Count")
-plt.title("MAPE distribution comparison")
-plt.show()
-
-
-
-
-plot_df.groupby("model")["mape_avg"].agg(
-    mean_mape="mean",
-    median_mape="median",
-    p90=lambda x: x.quantile(0.9)
-)

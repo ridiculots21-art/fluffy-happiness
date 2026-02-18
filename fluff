@@ -129,3 +129,40 @@ plt.ylabel("MAPE")
 plt.xticks(rotation=45)
 plt.show()
 
+
+
+
+
+
+from multiprocessing import Pool
+
+def run_experiment_over_zones(...):
+
+    if not isinstance(so_fcst_df, pd.DataFrame):
+        so_fcst_df = so_fcst_df.to_pandas()
+
+    # build lags ONCE globally
+    so_fcst_df = ensure_lags(so_fcst_df)
+
+    test_period_list = [
+        start_test_period + relativedelta(months=i)
+        for i in range(test_period_count)
+    ]
+
+    jobs = []
+    for zone in np.sort(so_fcst_df["zone"].unique()):
+        zone_df = so_fcst_df.loc[so_fcst_df["zone"] == zone].copy()
+        zone_df = zone_df.drop(columns=["zone"], errors="ignore")
+
+        for test_period in test_period_list:
+            jobs.append(
+                (zone_df, test_period, train_window_months,
+                 oversample_cfg, min_train_size)
+            )
+
+    print(f"Running {len(jobs)} jobs using 18 processes")
+
+    with Pool(18) as pool:
+        parts = pool.map(run_zone_forecasting_lr_experiment, jobs)
+
+    final = pd.concat(parts, ignore_index=True)

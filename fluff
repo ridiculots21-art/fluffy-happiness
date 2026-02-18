@@ -295,3 +295,54 @@ print("keys > 80% zero :", (key_zero["zero_ratio"] > 0.80).sum())
 top20 = key_zero.filter(pl.col("n_nonzero")>0).sort("zero_ratio", descending=True).head(20).to_pandas()
 print(top20)
 
+
+
+
+
+
+from sklearn.linear_model import LinearRegression
+
+def debug_key(key, df, test_period, train_window_months=None):
+
+    print(f"\n===== KEY: {key} =====")
+
+    max_train_period = (test_period - relativedelta(months=3)).strftime("%Y %m")
+    test_period_str = test_period.strftime("%Y %m")
+
+    train_k = df.filter(
+        (pl.col("key") == key) &
+        (pl.col("periods") <= max_train_period)
+    ).to_pandas()
+
+    test_k = df.filter(
+        (pl.col("key") == key) &
+        (pl.col("periods") == test_period_str)
+    ).to_pandas()
+
+    print("Train rows:", len(train_k))
+    print("Test rows:", len(test_k))
+
+    print("\nLast 5 train rows:")
+    print(train_k.tail())
+
+    print("\nTest row:")
+    print(test_k)
+
+    if len(train_k) < 3 or len(test_k) == 0:
+        print("Insufficient data.")
+        return
+
+    X_train = train_k[FEATURE_COLS]
+    y_train = train_k["so_nw_ct"]
+
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+
+    print("\nCoefficients:", model.coef_)
+    print("Intercept:", model.intercept_)
+
+    pred = model.predict(test_k[FEATURE_COLS])[0]
+
+    print("Prediction:", pred)
+    print("Actual:", test_k["so_nw_ct"].values[0])
+

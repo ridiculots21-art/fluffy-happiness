@@ -1,41 +1,97 @@
 import pandas as pd
 
-perf_base = pd.read_csv("LR_baseline_perf.csv")
-perf_1y = pd.read_csv("LR_1yr_perf.csv")
-perf_os = pd.read_csv("LR_os_perf.csv")
-perf_1y_os = pd.read_csv("LR_1yr_os_perf.csv")
+# aggregate total demand per key
+key_totals = (
+    so_pd.groupby("key")["so_nw_ct"]
+    .sum()
+    .sort_values(ascending=False)
+    .reset_index()
+)
+
+# cumulative share
+key_totals["cum_share"] = key_totals["so_nw_ct"].cumsum() / key_totals["so_nw_ct"].sum()
+
+# select keys up to 70%
+pareto_70_keys = key_totals.loc[key_totals["cum_share"] <= 0.70, "key"]
+
+# filter dataset
+so_pd_70 = so_pd[so_pd["key"].isin(pareto_70_keys)].copy()
 
 
-comparison_df = pd.concat([
-    perf_base[["key", "mape_avg"]].assign(model="Baseline"),
-    perf_1y[["key", "mape_avg"]].assign(model="1-Year"),
-    perf_os[["key", "mape_avg"]].assign(model="OS"),
-    perf_1y_os[["key", "mape_avg"]].assign(model="1-Year + OS"),
-])
 
 
-summary = comparison_df.groupby("model")["mape_avg"].agg(
-    mean_mape="mean",
-    median_mape="median",
-    p90=lambda x: x.quantile(0.9)
-).sort_values("median_mape")
 
-summary
+start_test_period = datetime(2025, 7, 1)
+
+rs_base_70, perf_base_70 = run_experiment_over_zones(
+    so_pd_70, start_test_period,
+    test_period_count=6,
+    train_window_months=None,
+    oversample_cfg=None,
+    save_prefix="LR_baseline_70"
+)
+
+rs_1y_70, perf_1y_70 = run_experiment_over_zones(
+    so_pd_70, start_test_period,
+    test_period_count=6,
+    train_window_months=12,
+    oversample_cfg=None,
+    save_prefix="LR_1yr_70"
+)
+
+oversample_cfg_weight = {"strategy":"weight", "weight_factor":5.0}
+
+rs_os_70, perf_os_70 = run_experiment_over_zones(
+    so_pd_70, start_test_period,
+    test_period_count=6,
+    train_window_months=None,
+    oversample_cfg=oversample_cfg_weight,
+    save_prefix="LR_os_70"
+)
+
+rs_1y_os_70, perf_1y_os_70 = run_experiment_over_zones(
+    so_pd_70, start_test_period,
+    test_period_count=6,
+    train_window_months=12,
+    oversample_cfg=oversample_cfg_weight,
+    save_prefix="LR_1yr_os_70"
+)
+
+
+
+import polars as pl
+
+perf_base_70 = perf_base_70.with_columns(model=pl.lit("Baseline"))
+perf_1y_70 = perf_1y_70.with_columns(model=pl.lit("1-Year"))
+perf_os_70 = perf_os_70.with_columns(model=pl.lit("OS"))
+perf_1y_os_70 = perf_1y_os_70.with_columns(model=pl.lit("1-Year + OS"))
+
+comp_70 = pl.concat([perf_base_70, perf_1y_70, perf_os_70, perf_1y_os_70])
+
+summary_70 = comp_70.group_by("model").agg(
+    pl.mean("mape_avg").alias("mean_mape"),
+    pl.median("mape_avg").alias("median_mape")
+).sort("median_mape")
+
+display(summary_70)
 
 
 
 import matplotlib.pyplot as plt
 
-plt.figure(figsize=(8, 5))
+plot_df_70 = comp_70.select(["model", "mape_avg"]).to_pandas()
 
-comparison_df.boxplot(
+plt.figure(figsize=(9,6))
+
+plot_df_70.boxplot(
     column="mape_avg",
     by="model",
     grid=False
 )
 
 plt.suptitle("")
-plt.title("Per-key MAPE Distribution")
+plt.title("Pareto 70 – Per-Key MAPE Distribution")
 plt.ylabel("MAPE")
 plt.xticks(rotation=45)
 plt.show()
+

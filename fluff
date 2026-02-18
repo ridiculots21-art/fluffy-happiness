@@ -91,6 +91,40 @@ plot_df_70.boxplot(
 
 plt.suptitle("")
 plt.title("Pareto 70 – Per-Key MAPE Distribution")
+
+
+
+
+
+
+summary_80 = summary_80.with_columns(pareto=pl.lit("80"))
+summary_70 = summary_70.with_columns(pareto=pl.lit("70"))
+
+compare_pareto = pl.concat([summary_80, summary_70]).sort(["model", "pareto"])
+display(compare_pareto)
+
+
+
+comp_80 = comp_80.with_columns(pareto=pl.lit("80"))
+comp_70 = comp_70.with_columns(pareto=pl.lit("70"))
+
+combined = pl.concat([comp_80, comp_70])
+plot_df = combined.select(["model", "pareto", "mape_avg"]).to_pandas()
+
+
+
+
+plt.figure(figsize=(10,6))
+
+for (model, pareto), group in plot_df.groupby(["model", "pareto"]):
+    plt.hist(group["mape_avg"], bins=30, alpha=0.4, label=f"{model}-{pareto}")
+
+plt.legend()
+plt.xlabel("MAPE")
+plt.ylabel("Count")
+plt.title("Pareto 70 vs 80 Comparison")
+plt.show()
+
 plt.ylabel("MAPE")
 plt.xticks(rotation=45)
 plt.show()

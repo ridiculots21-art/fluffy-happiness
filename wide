@@ -444,6 +444,52 @@ plt.tight_layout()
 plt.show()
 
 
+
+comparison = (
+    df.filter(pl.col("month").is_in([3, 4]))
+      .group_by(["year", "month"])
+      .agg(pl.col("so_nw_ct").sum().alias("sales"))
+)
+
+comparison_pd = comparison.to_pandas()
+
+pivot = comparison_pd.pivot(
+    index="year",
+    columns="month",
+    values="sales"
+).reset_index()
+
+pivot = pivot.rename(columns={
+    3: "March",
+    4: "April"
+})
+
+pivot = pivot.fillna(0)
+
+print("Year-level totals:")
+display(pivot)
+
+# -------------------------------------------------
+# 6. Grouped Bar Chart
+# -------------------------------------------------
+
+x = np.arange(len(pivot["year"]))
+width = 0.35
+
+plt.figure(figsize=(10,5))
+
+plt.bar(x - width/2, pivot["March"], width, label="March (t-1)")
+plt.bar(x + width/2, pivot["April"], width, label="April (Lebaran)")
+
+plt.xticks(x, pivot["year"])
+plt.ylabel("Total Sales (so_nw_ct)")
+plt.title("Sales Comparison: March vs April (Lebaran)")
+plt.legend()
+
+plt.tight_layout()
+plt.show()
+
+
 ------------------------------------------------------------------------
 
 

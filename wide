@@ -1,3 +1,12 @@
+print(pivot_zone["zone"].unique())
+
+pivot_zone_2b = pivot_zone[
+    pivot_zone["zone"].str.upper() == "2B"
+]
+
+pivot_zone_2b = pivot_zone[pivot_zone["zone"] == "2B"]
+
+
 # CONFIG
 DEFAULT_LEBARAN_DATES = [
     "2023-04-22",

@@ -821,3 +821,47 @@ pivot_zone.to_csv("pivot_zone_full.csv", index=False)
 
 print("pivot_zone_full.csv saved.")
 
+
+
+
+
+# ---------------------------------
+# Reusable Pareto Filter Function
+# ---------------------------------
+
+def apply_pareto(df_input, ratio):
+    """
+    Returns filtered dataframe containing top cumulative ratio contributors.
+    ratio = 0.8 keeps top 80% cumulative sales.
+    """
+
+    total_by_key = (
+        df_input
+        .group_by("key")
+        .agg(pl.col("so_nw_ct").sum().alias("total_sales"))
+        .sort("total_sales", descending=True)
+    )
+
+    total_sum = total_by_key["total_sales"].sum()
+
+    total_by_key = total_by_key.with_columns(
+        (pl.col("total_sales").cumsum() / total_sum).alias("cum_ratio")
+    )
+
+    top_keys = total_by_key.filter(
+        pl.col("cum_ratio") <= ratio
+    )["key"]
+
+    return df_input.filter(pl.col("key").is_in(top_keys))
+
+
+# Toggle this when needed
+PARETO_RATIO = None   # Example: 0.8
+
+if PARETO_RATIO is not None:
+    df_working = apply_pareto(df_base, PARETO_RATIO)
+else:
+    df_working = df_base
+
+print("Using Pareto:" , PARETO_RATIO)
+

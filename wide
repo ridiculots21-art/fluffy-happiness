@@ -234,6 +234,95 @@ def weighted_summaries(per_event_df: pl.DataFrame, weight_map: pl.DataFrame, wei
 
 ------------------------------------------------------------------------
 
+# ===== Single Cell: Monthly Sales Plot with Lebaran (April) Markers =====
+
+import polars as pl
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# ---------------------------
+# 1. PREPARE DATA
+# ---------------------------
+# Assumes: so_fcst_df exists
+# Required columns:
+# - "periods" (format: "YYYY MM")
+# - "so_nw_ct" (sales value)
+# - "key" (format assumed: something_soldto_shipto or similar, separated by "_")
+
+df = so_fcst_df
+
+# --- Extract soldto and shipto from key ---
+# Adjust index positions below if needed
+# Example: if key = "material_soldto_shipto"
+# then soldto_index = 1, shipto_index = 2
+
+soldto_index = 1
+shipto_index = 2
+
+df = df.with_columns([
+    pl.col("key").str.split("_").list.get(soldto_index).alias("soldto"),
+    pl.col("key").str.split("_").list.get(shipto_index).alias("shipto")
+])
+
+# ---------------------------
+# 2. MANUAL FILTER (EDIT HERE IF NEEDED)
+# ---------------------------
+
+# OPTION A: No filter → comment both lines below
+# df = df.filter(pl.col("soldto") == "YOUR_SOLDTO_CODE")
+# df = df.filter(pl.col("shipto") == "YOUR_SHIPTO_CODE")
+
+# OPTION B: Multiple values
+# df = df.filter(pl.col("soldto").is_in(["A123", "B456"]))
+
+# ---------------------------
+# 3. AGGREGATE MONTHLY SALES
+# ---------------------------
+
+monthly = (
+    df.group_by("periods")
+      .agg(pl.col("so_nw_ct").sum().alias("monthly_sales"))
+      .sort("periods")
+)
+
+monthly_pd = monthly.to_pandas()
+monthly_pd["period_dt"] = pd.to_datetime(monthly_pd["periods"], format="%Y %m")
+
+# Restrict to 2023–2025
+monthly_pd = monthly_pd[
+    (monthly_pd["period_dt"] >= "2023-01-01") &
+    (monthly_pd["period_dt"] <= "2025-12-31")
+].copy()
+
+monthly_pd = monthly_pd.sort_values("period_dt")
+
+# ---------------------------
+# 4. PLOT
+# ---------------------------
+
+plt.figure(figsize=(14,5))
+sns.lineplot(data=monthly_pd, x="period_dt", y="monthly_sales", marker="o")
+
+plt.title("Monthly Sales (2023–2025) with Lebaran = April")
+plt.xlabel("Period")
+plt.ylabel("Total Sales (so_nw_ct)")
+
+# Lebaran assumed April (month=4)
+for year in [2023, 2024, 2025]:
+    lebaran_date = pd.Timestamp(f"{year}-04-01")
+    plt.axvline(lebaran_date, linestyle="--")
+    plt.text(
+        lebaran_date,
+        monthly_pd["monthly_sales"].max() * 1.02,
+        f"Lebaran {year}",
+        ha="center",
+        va="bottom",
+        fontsize=9
+    )
+
+plt.tight_layout()
+plt.show()
 
 
 ------------------------------------------------------------------------

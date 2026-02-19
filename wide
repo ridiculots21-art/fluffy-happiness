@@ -1,17 +1,37 @@
-print(pivot_zone["zone"].unique())
-
-pivot_zone_2b = pivot_zone[
-    pivot_zone["zone"].str.upper() == "2B"
+ratio_cols = [
+    "3M_before_minus_during_ratio",
+    "1M_before_minus_during_ratio",
+    "2M_before_minus_1M_before_ratio",
+    "3M_before_minus_2M_before_ratio"
 ]
 
-pivot_zone_2b = pivot_zone[pivot_zone["zone"] == "2B"]
+max_rows = []
 
-top_row = pivot_zone_2b.sort_values(
-    "3M_before_minus_during_ratio",
-    ascending=False
-).head(1)
+for col in ratio_cols:
+    idx = pivot_zone[col].idxmax()   # index of max value
+    row = pivot_zone.loc[idx].copy()
+    row["metric"] = col              # label which ratio this came from
+    max_rows.append(row)
 
-display(top_row)
+max_ratio_rows = pd.DataFrame(max_rows)
+
+display(max_ratio_rows)
+
+display(max_ratio_rows[["metric", "zone", "year"] + ratio_cols])
+
+
+min_rows = []
+
+for col in ratio_cols:
+    idx = pivot_zone[col].idxmin()
+    row = pivot_zone.loc[idx].copy()
+    row["metric"] = col
+    min_rows.append(row)
+
+min_ratio_rows = pd.DataFrame(min_rows)
+
+display(min_ratio_rows)
+
 
 
 # CONFIG

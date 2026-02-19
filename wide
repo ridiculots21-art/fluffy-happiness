@@ -742,3 +742,54 @@ print("Combined 2023–2025 National Percentage (ratio form):")
 display(overall_pct)
 
 ------------------------------------------------------------------------
+
+zone_monthly = (
+    df_base
+    .group_by(["zone", "year", "month"])
+    .agg(pl.col("so_nw_ct").sum().alias("sales"))
+)
+
+zone_pd = zone_monthly.to_pandas()
+
+pivot_zone = zone_pd.pivot_table(
+    index=["zone", "year"],
+    columns="month",
+    values="sales",
+    fill_value=0
+).reset_index()
+
+pivot_zone = pivot_zone.rename(columns={
+    1: "Jan",
+    2: "Feb",
+    3: "Mar",
+    4: "Apr"
+})
+
+# Compute differences (same logic as Number 4)
+
+pivot_zone["3M - Lebaran"] = pivot_zone["Jan"] - pivot_zone["Apr"]
+pivot_zone["1M - Lebaran"] = pivot_zone["Mar"] - pivot_zone["Apr"]
+pivot_zone["2M - 1M"] = pivot_zone["Feb"] - pivot_zone["Mar"]
+pivot_zone["3M - 2M"] = pivot_zone["Jan"] - pivot_zone["Feb"]
+
+pivot_zone.head()
+
+--------------------------------------------------------------------------
+
+zone_avg = (
+    pivot_zone
+    .groupby("zone")[[
+        "3M - Lebaran",
+        "1M - Lebaran",
+        "2M - 1M",
+        "3M -2M"
+    ]]
+    .mean()
+    .reset_index()
+)
+
+zone_avg = zone_avg.sort_values("1M - Lebaran    ")
+
+zone_avg
+
+

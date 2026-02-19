@@ -613,6 +613,54 @@ plt.show()
 
 ------------------------------------------------------------------------
 
+import polars as pl
+import pandas as pd
+
+df = so_fcst_df
+
+# ----------------------------
+# Date preparation
+# ----------------------------
+df = df.with_columns(
+    pl.col("periods").str.strptime(pl.Date, format="%Y %m").alias("period_dt")
+)
+
+df = df.with_columns([
+    pl.col("period_dt").dt.year().alias("year"),
+    pl.col("period_dt").dt.month().alias("month")
+])
+
+df = df.filter(pl.col("year").is_in([2023, 2024, 2025]))
+df = df.filter(pl.col("month").is_in([1,2,3,4]))
+
+# ----------------------------
+# Aggregate national totals
+# ----------------------------
+
+monthly = (
+    df.group_by(["year", "month"])
+      .agg(pl.col("so_nw_ct").sum().alias("sales"))
+)
+
+monthly_pd = monthly.to_pandas()
+
+pivot = monthly_pd.pivot(
+    index="year",
+    columns="month",
+    values="sales"
+).reset_index()
+
+pivot = pivot.rename(columns={
+    1: "Jan",
+    2: "Feb",
+    3: "Mar",
+    4: "Apr"
+}).fillna(0)
+
+pivot
+
+
+
 # ----------------------------
 # Year-level differences
 # ----------------------------

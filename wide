@@ -12,6 +12,14 @@ comparison = (
   .agg(pl.col("so_nw_ct").sum().alias("sales"))
 )
 
+month_cols = sorted([c for c in pivot.columns if isinstance(c, (int, float))])
+
+pivot = pivot.rename(columns={
+    month_cols[0]: "before_sales",
+    month_cols[1]: "lebaran_sales"
+})
+
+
 # cell 1
 for year in [2023, 2024, 2025]:
   lebaran_date = pd.Timestamp(f"{year}-{LEBARAN_MONTH[year]:02d}-01")

@@ -327,6 +327,121 @@ plt.show()
 
 ------------------------------------------------------------------------
 
+# ===== Task 2: Compare 1 Month Before (March) vs During Lebaran (April) =====
+
+import polars as pl
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Assumes so_fcst_df exists with:
+# - periods (format: "YYYY MM")
+# - so_nw_ct
+# - key
+
+df = so_fcst_df
+
+# ---------------------------
+# 1. Prepare datetime
+# ---------------------------
+df = df.with_columns(
+    pl.col("periods").str.strptime(pl.Date, format="%Y %m").alias("period_dt")
+)
+
+df = df.with_columns([
+    pl.col("period_dt").dt.year().alias("year"),
+    pl.col("period_dt").dt.month().alias("month")
+])
+
+# Restrict to 2023–2025
+df = df.filter(pl.col("year").is_in([2023, 2024, 2025]))
+
+# ---------------------------
+# 2. OPTIONAL: Pareto Filter
+# ---------------------------
+# If you want Pareto filtering:
+# Set PARETO_RATIO to something like 0.8 (top 80% contributors)
+# If not needed, set to None
+
+PARETO_RATIO = None   # Example: 0.8
+
+if PARETO_RATIO is not None:
+    total_by_key = (
+        df.group_by("key")
+          .agg(pl.col("so_nw_ct").sum().alias("total_sales"))
+          .sort("total_sales", descending=True)
+    )
+
+    total_sum = total_by_key["total_sales"].sum()
+
+    total_by_key = total_by_key.with_columns(
+        (pl.col("total_sales").cumsum() / total_sum).alias("cum_ratio")
+    )
+
+    top_keys = total_by_key.filter(pl.col("cum_ratio") <= PARETO_RATIO)["key"]
+
+    df = df.filter(pl.col("key").is_in(top_keys))
+
+# ---------------------------
+# 3. Get March (t-1) and April (Lebaran)
+# ---------------------------
+
+lebaran_month = 4
+before_month = 3
+
+comparison = (
+    df.filter(pl.col("month").is_in([before_month, lebaran_month]))
+      .group_by(["key", "year", "month"])
+      .agg(pl.col("so_nw_ct").sum().alias("sales"))
+)
+
+comparison_pd = comparison.to_pandas()
+
+# Pivot so we get columns: March and April
+pivot = comparison_pd.pivot_table(
+    index=["key", "year"],
+    columns="month",
+    values="sales",
+    fill_value=0
+).reset_index()
+
+pivot.columns.name = None
+pivot = pivot.rename(columns={
+    before_month: "before_sales",
+    lebaran_month: "lebaran_sales"
+})
+
+# Calculate difference
+pivot["difference"] = pivot["lebaran_sales"] - pivot["before_sales"]
+pivot["pct_change"] = (
+    pivot["difference"] / pivot["before_sales"].replace(0, pd.NA)
+)
+
+print("Sample comparison:")
+display(pivot.head())
+
+# ---------------------------
+# 4. Aggregate Overall Impact
+# ---------------------------
+
+summary = pivot.groupby("year")[["before_sales", "lebaran_sales"]].sum().reset_index()
+
+print("Year-level summary:")
+display(summary)
+
+# ---------------------------
+# 5. Plot Before vs During
+# ---------------------------
+
+plt.figure(figsize=(10,5))
+sns.lineplot(data=summary, x="year", y="before_sales", marker="o", label="March (t-1)")
+sns.lineplot(data=summary, x="year", y="lebaran_sales", marker="o", label="April (Lebaran)")
+
+plt.title("Total Sales: 1 Month Before vs During Lebaran")
+plt.ylabel("Total Sales (so_nw_ct)")
+plt.xlabel("Year")
+plt.tight_layout()
+plt.show()
 
 
 ------------------------------------------------------------------------

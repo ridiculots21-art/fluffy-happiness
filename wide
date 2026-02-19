@@ -699,12 +699,46 @@ display(overall_diff)
 
 ------------------------------------------------------------------------
 
+# ----------------------------
+# Percentage Differences (ratio form)
+# ----------------------------
 
+pivot["3M_before_minus_during_pct"] = (
+    (pivot["Jan"] - pivot["Apr"]) / pivot["Apr"].replace(0, pd.NA)
+)
 
+pivot["1M_before_minus_during_pct"] = (
+    (pivot["Mar"] - pivot["Apr"]) / pivot["Apr"].replace(0, pd.NA)
+)
+
+pivot["2M_before_minus_1M_before_pct"] = (
+    (pivot["Feb"] - pivot["Mar"]) / pivot["Mar"].replace(0, pd.NA)
+)
+
+pivot["3M_before_minus_2M_before_pct"] = (
+    (pivot["Jan"] - pivot["Feb"]) / pivot["Feb"].replace(0, pd.NA)
+)
+
+pivot
 
 ------------------------------------------------------------------------
 
+overall_pct = pd.DataFrame({
+    "Metric": [
+        "3M_before_minus_during_pct",
+        "1M_before_minus_during_pct",
+        "2M_before_minus_1M_before_pct",
+        "3M_before_minus_2M_before_pct"
+    ],
+    "Value": [
+        (overall["Jan"] - overall["Apr"]) / overall["Apr"] if overall["Apr"] != 0 else None,
+        (overall["Mar"] - overall["Apr"]) / overall["Apr"] if overall["Apr"] != 0 else None,
+        (overall["Feb"] - overall["Mar"]) / overall["Mar"] if overall["Mar"] != 0 else None,
+        (overall["Jan"] - overall["Feb"]) / overall["Feb"] if overall["Feb"] != 0 else None
+    ]
+})
 
-
+print("Combined 2023–2025 National Percentage (ratio form):")
+display(overall_pct)
 
 ------------------------------------------------------------------------

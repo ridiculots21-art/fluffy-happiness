@@ -865,3 +865,195 @@ else:
 
 print("Using Pareto:" , PARETO_RATIO)
 
+---------------------------------------------------------------------------------------------------
+# Cell A — per-key Jan–Apr pivot, differences, ratios; save CSVs
+import polars as pl
+import pandas as pd
+import numpy as np
+
+# --- Config (edit only this if your key structure differs) ---
+zone_index = 0          # index of zone inside key when splitting by '_' (default 0)
+years_keep = [2023, 2024, 2025]
+months_keep = [1, 2, 3, 4]   # Jan, Feb, Mar, Apr
+
+# --- Source (uses df_pareto as you requested) ---
+df = df_pareto  # must exist
+
+# --- Ensure period, year, month exist ---
+if "period_dt" not in df.columns:
+    df = df.with_columns(pl.col("periods").str.strptime(pl.Date, format="%Y %m").alias("period_dt"))
+if "year" not in df.columns or "month" not in df.columns:
+    df = df.with_columns([
+        pl.col("period_dt").dt.year().alias("year"),
+        pl.col("period_dt").dt.month().alias("month")
+    ])
+
+# Filter to target years and months
+df = df.filter(pl.col("year").is_in(years_keep) & pl.col("month").is_in(months_keep))
+
+# Aggregate sales per key-year-month
+key_monthly = (
+    df
+    .group_by(["key", "year", "month"])
+    .agg(pl.col("so_nw_ct").sum().alias("sales"))
+)
+
+# Convert to pandas pivot with columns for months 1..4
+key_monthly_pd = key_monthly.to_pandas()
+pivot_key = key_monthly_pd.pivot_table(
+    index=["key", "year"],
+    columns="month",
+    values="sales",
+    fill_value=0
+).reset_index()
+
+# Make sure month columns exist always (1..4)
+for m in months_keep:
+    if m not in pivot_key.columns:
+        pivot_key[m] = 0
+
+pivot_key = pivot_key.rename(columns={1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr"})
+pivot_key = pivot_key[["key", "year", "Jan", "Feb", "Mar", "Apr"]]
+
+# Add zone column by splitting key (pandas)
+pivot_key["zone"] = pivot_key["key"].str.split("_").str.get(zone_index)
+
+# Compute absolute differences (per your spec)
+pivot_key["3M_before_minus_during"] = pivot_key["Jan"] - pivot_key["Apr"]
+pivot_key["1M_before_minus_during"] = pivot_key["Mar"] - pivot_key["Apr"]
+pivot_key["2M_before_minus_1M_before"] = pivot_key["Feb"] - pivot_key["Mar"]
+pivot_key["3M_before_minus_2M_before"] = pivot_key["Jan"] - pivot_key["Feb"]
+
+# Compute ratio (decimal) differences; denominator replaced with NA if zero to avoid inf
+pivot_key["3M_before_minus_during_ratio"] = (pivot_key["Jan"] - pivot_key["Apr"]) / pivot_key["Apr"].replace(0, np.nan)
+pivot_key["1M_before_minus_during_ratio"] = (pivot_key["Mar"] - pivot_key["Apr"]) / pivot_key["Apr"].replace(0, np.nan)
+pivot_key["2M_before_minus_1M_before_ratio"] = (pivot_key["Feb"] - pivot_key["Mar"]) / pivot_key["Mar"].replace(0, np.nan)
+pivot_key["3M_before_minus_2M_before_ratio"] = (pivot_key["Jan"] - pivot_key["Feb"]) / pivot_key["Feb"].replace(0, np.nan)
+
+# Save full per-key pivot (so you can inspect all key×year rows)
+pivot_key.to_csv("pivot_key_jan_apr_full.csv", index=False)
+print("Saved pivot_key_jan_apr_full.csv (per-key × year details).")
+
+# Also build pivot_zone (zone × year × months) and save (summary)
+pivot_zone = pivot_key.groupby(["zone", "year"], as_index=False).agg({
+    "Jan": "sum",
+    "Feb": "sum",
+    "Mar": "sum",
+    "Apr": "sum",
+    "3M_before_minus_during": "sum",
+    "1M_before_minus_during": "sum",
+    "2M_before_minus_1M_before": "sum",
+    "3M_before_minus_2M_before": "sum"
+})
+
+# Recompute ratios at zone-year level safely (denominator zero -> NaN)
+pivot_zone["3M_before_minus_during_ratio"] = (pivot_zone["Jan"] - pivot_zone["Apr"]) / pivot_zone["Apr"].replace(0, np.nan)
+pivot_zone["1M_before_minus_during_ratio"] = (pivot_zone["Mar"] - pivot_zone["Apr"]) / pivot_zone["Apr"].replace(0, np.nan)
+pivot_zone["2M_before_minus_1M_before_ratio"] = (pivot_zone["Feb"] - pivot_zone["Mar"]) / pivot_zone["Mar"].replace(0, np.nan)
+pivot_zone["3M_before_minus_2M_before_ratio"] = (pivot_zone["Jan"] - pivot_zone["Feb"]) / pivot_zone["Feb"].replace(0, np.nan)
+
+pivot_zone.to_csv("pivot_zone_jan_apr_full.csv", index=False)
+print("Saved pivot_zone_jan_apr_full.csv (zone × year details).")
+
+# Keep pivot_key and pivot_zone in memory for next cell
+print("Rows (key×year):", len(pivot_key))
+print("Rows (zone×year):", len(pivot_zone))
+
+
+--------------------------------------------------------------------------------------------------------------------
+
+
+# Cell B — national & zone averages + plots
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# pivot_key and pivot_zone are loaded from previous cell (pandas DataFrames)
+
+# --- NATIONAL AVERAGES (mean across keys) PER YEAR ---
+national_by_year = pivot_key.groupby("year").agg({
+    "3M_before_minus_during": "mean",
+    "1M_before_minus_during": "mean",
+    "2M_before_minus_1M_before": "mean",
+    "3M_before_minus_2M_before": "mean",
+    "3M_before_minus_during_ratio": "mean",
+    "1M_before_minus_during_ratio": "mean",
+    "2M_before_minus_1M_before_ratio": "mean",
+    "3M_before_minus_2M_before_ratio": "mean"
+}).reset_index()
+
+print("National averages per year (unweighted mean across keys):")
+display(national_by_year)
+
+# --- NATIONAL COMBINED (2023-2025) AVERAGE ACROSS ALL key×year ROWS ---
+national_combined = pivot_key[[
+    "3M_before_minus_during",
+    "1M_before_minus_during",
+    "2M_before_minus_1M_before",
+    "3M_before_minus_2M_before",
+    "3M_before_minus_during_ratio",
+    "1M_before_minus_during_ratio",
+    "2M_before_minus_1M_before_ratio",
+    "3M_before_minus_2M_before_ratio"
+]].mean(skipna=True).rename("combined_mean").to_frame().reset_index()
+national_combined.columns = ["metric", "value"]
+
+print("National combined mean (2023–2025) across all key×year rows:")
+display(national_combined)
+
+# --- ZONE AVERAGES (per year and combined) ---
+zone_by_year = pivot_key.groupby(["zone", "year"]).agg({
+    "3M_before_minus_during": "mean",
+    "1M_before_minus_during": "mean",
+    "2M_before_minus_1M_before": "mean",
+    "3M_before_minus_2M_before": "mean",
+    "3M_before_minus_during_ratio": "mean",
+    "1M_before_minus_during_ratio": "mean",
+    "2M_before_minus_1M_before_ratio": "mean",
+    "3M_before_minus_2M_before_ratio": "mean"
+}).reset_index()
+
+print("Zone averages per year (mean across keys in zone):")
+display(zone_by_year)
+
+zone_combined = zone_by_year.groupby("zone").mean(numeric_only=True).reset_index()
+print("Zone averages combined across years:")
+display(zone_combined)
+
+# --- Quick Plots (national_by_year) ---
+# Plot absolute differences per year (grouped bars)
+plt.figure(figsize=(10,5))
+x = np.arange(len(national_by_year["year"]))
+w = 0.2
+plt.bar(x - 1.5*w, national_by_year["3M_before_minus_during"], width=w, label="Jan - Apr")
+plt.bar(x - 0.5*w, national_by_year["1M_before_minus_during"], width=w, label="Mar - Apr")
+plt.bar(x + 0.5*w, national_by_year["2M_before_minus_1M_before"], width=w, label="Feb - Mar")
+plt.bar(x + 1.5*w, national_by_year["3M_before_minus_2M_before"], width=w, label="Jan - Feb")
+plt.xticks(x, national_by_year["year"])
+plt.ylabel("Average absolute difference (per key)")
+plt.title("National avg differences per year (mean across keys)")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# Plot ratio metrics per year (grouped)
+plt.figure(figsize=(10,5))
+plt.bar(x - 1.5*w, national_by_year["3M_before_minus_during_ratio"], width=w, label="(Jan-Apr)/Apr")
+plt.bar(x - 0.5*w, national_by_year["1M_before_minus_during_ratio"], width=w, label="(Mar-Apr)/Apr")
+plt.bar(x + 0.5*w, national_by_year["2M_before_minus_1M_before_ratio"], width=w, label="(Feb-Mar)/Mar")
+plt.bar(x + 1.5*w, national_by_year["3M_before_minus_2M_before_ratio"], width=w, label="(Jan-Feb)/Feb")
+plt.xticks(x, national_by_year["year"])
+plt.ylabel("Average ratio (decimal, mean across keys)")
+plt.title("National avg ratio metrics per year")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# --- Save summaries for reporting ---
+national_by_year.to_csv("national_by_year_jan_apr_avg.csv", index=False)
+national_combined.to_csv("national_combined_jan_apr_avg.csv", index=False)
+zone_by_year.to_csv("zone_by_year_jan_apr_avg.csv", index=False)
+zone_combined.to_csv("zone_combined_jan_apr_avg.csv", index=False)
+
+print("Saved summary CSVs: national_by_year_jan_apr_avg.csv, national_combined_jan_apr_avg.csv, zone_by_year_jan_apr_avg.csv, zone_combined_jan_apr_avg.csv")

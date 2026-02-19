@@ -793,3 +793,31 @@ zone_avg = zone_avg.sort_values("1M - Lebaran    ")
 zone_avg
 
 
+
+
+
+pivot_zone["3M_before_minus_during_ratio"] = (
+    (pivot_zone["Jan"] - pivot_zone["Apr"]) /
+    pivot_zone["Apr"].replace(0, pd.NA)
+)
+
+pivot_zone["1M_before_minus_during_ratio"] = (
+    (pivot_zone["Mar"] - pivot_zone["Apr"]) /
+    pivot_zone["Apr"].replace(0, pd.NA)
+)
+
+pivot_zone["2M_before_minus_1M_before_ratio"] = (
+    (pivot_zone["Feb"] - pivot_zone["Mar"]) /
+    pivot_zone["Mar"].replace(0, pd.NA)
+)
+
+pivot_zone["3M_before_minus_2M_before_ratio"] = (
+    (pivot_zone["Jan"] - pivot_zone["Feb"]) /
+    pivot_zone["Feb"].replace(0, pd.NA)
+)
+
+
+pivot_zone.to_csv("pivot_zone_full.csv", index=False)
+
+print("pivot_zone_full.csv saved.")
+

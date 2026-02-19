@@ -1,0 +1,251 @@
+# CONFIG
+DEFAULT_LEBARAN_DATES = [
+    "2023-04-22",
+    "2024-04-10",
+    "2025-03-31",
+]
+
+CONFIG = {
+    "period_col": "periods",     # 'YYYY MM'
+    "value_col": "so_nw_ct",
+    "group_key": "key",
+    "zone_extract_idx": 0,       # index when splitting key by '_' to get zone
+    "pareto_keys": None,         # set to list/Series if restricting to pareto
+    "filter_soldto": None,
+    "filter_shipto": None,
+}
+
+------------------------------------------------------------------------
+
+# Cell 2 — core helpers: lebaran -> periods, and compute per-key diffs
+def to_period_str(dt: datetime) -> str:
+    return dt.strftime("%Y %m")
+
+def lebaran_to_periods(lebaran_dates):
+    """Return list of dicts with lebaran_period, m1, m2, m3 for each date string YYYY-MM-DD"""
+    periods = []
+    for d in lebaran_dates:
+        ld = datetime.strptime(d, "%Y-%m-%d")
+        periods.append({
+            "lebaran_date": ld,
+            "lebaran_period": to_period_str(ld),
+            "m1": to_period_str(ld - relativedelta(months=1)),
+            "m2": to_period_str(ld - relativedelta(months=2)),
+            "m3": to_period_str(ld - relativedelta(months=3)),
+        })
+    return periods
+
+def compute_lebaran_diffs_for_one(so_df: pl.DataFrame, lebaran_info: dict, cfg: dict = CONFIG) -> pl.DataFrame:
+    """
+    For a single lebaran event, build wide table per key with columns:
+      key, zone, m3, m2, m1, lebaran, diff_m1_lebaran, diff_m3_lebaran, diff_m2_m1, diff_m3_m2
+    Missing months are filled with 0 (configurable approach).
+    """
+    period_col = cfg["period_col"]
+    val_col = cfg["value_col"]
+    key_col = cfg["group_key"]
+
+    required = [lebaran_info["m3"], lebaran_info["m2"], lebaran_info["m1"], lebaran_info["lebaran_period"]]
+
+    tmp = (
+        so_df
+        .filter(pl.col(period_col).is_in(required))
+        .select([pl.col(key_col), pl.col(period_col), pl.col(val_col)])
+        .group_by([key_col, period_col])
+        .agg(pl.col(val_col).sum().alias(val_col))
+    )
+
+    pivoted = tmp.pivot(
+        on=period_col,
+        index=key_col,
+        values=val_col,
+        aggregate_function="sum",
+        sort_columns=True
+    ).fill_null(0)
+
+    # Ensure columns exist even if absent
+    for p in required:
+        if p not in pivoted.columns:
+            pivoted = pivoted.with_columns(pl.lit(0).alias(p))
+
+    pivoted = pivoted.with_columns(
+        pl.col(required[0]).alias("m3"),
+        pl.col(required[1]).alias("m2"),
+        pl.col(required[2]).alias("m1"),
+        pl.col(required[3]).alias("lebaran"),
+    )
+
+    # extract zone from key (flexible index)
+    pivoted = pivoted.with_columns(
+        zone = pl.col(key_col).str.split("_").list.get(cfg["zone_extract_idx"])
+    )
+
+    pivoted = pivoted.with_columns(
+        (pl.col("m1") - pl.col("lebaran")).alias("diff_m1_lebaran"),
+        (pl.col("m3") - pl.col("lebaran")).alias("diff_m3_lebaran"),
+        (pl.col("m2") - pl.col("m1")).alias("diff_m2_m1"),
+        (pl.col("m3") - pl.col("m2")).alias("diff_m3_m2"),
+    )
+
+    out = pivoted.select([
+        key_col, "zone", "m3", "m2", "m1", "lebaran",
+        "diff_m1_lebaran","diff_m3_lebaran","diff_m2_m1","diff_m3_m2"
+    ])
+
+    return out
+
+def compute_lebaran_diffs(so_df: pl.DataFrame, lebaran_dates, cfg: dict = CONFIG):
+    """
+    Runs compute_lebaran_diffs_for_one for each lebaran date.
+    Returns:
+      - per_event_concat (Polars DF) : per-key per-event diffs (adds column lebaran_period)
+      - national_summary_unweighted (Pandas DF) : simple means (unweighted)
+      - zone_summary_unweighted (Pandas DF) : simple means per zone (unweighted)
+    """
+    infos = lebaran_to_periods(lebaran_dates)
+    per_event_dfs = []
+    national_rows = []
+    zone_rows = []
+
+    df = so_df
+    if cfg.get("pareto_keys") is not None:
+        df = df.filter(pl.col(cfg["group_key"]).is_in(cfg["pareto_keys"]))
+    if cfg.get("filter_soldto") is not None:
+        df = df.filter(pl.col("key").str.contains(str(cfg["filter_soldto"])))
+    if cfg.get("filter_shipto") is not None:
+        df = df.filter(pl.col("key").str.contains(str(cfg["filter_shipto"])))
+
+    for info in infos:
+        diffs = compute_lebaran_diffs_for_one(df, info, cfg)
+        diffs = diffs.with_columns(pl.lit(info["lebaran_period"]).alias("lebaran_period"))
+        per_event_dfs.append(diffs)
+
+        nat = diffs.select([
+            pl.mean("diff_m1_lebaran").alias("avg_diff_m1_lebaran"),
+            pl.mean("diff_m3_lebaran").alias("avg_diff_m3_lebaran"),
+            pl.mean("diff_m2_m1").alias("avg_diff_m2_m1"),
+            pl.mean("diff_m3_m2").alias("avg_diff_m3_m2")
+        ]).with_columns(pl.lit(info["lebaran_period"]).alias("lebaran_period"))
+        national_rows.append(nat.to_pandas())
+
+        zone_avg = diffs.group_by("zone").agg([
+            pl.mean("diff_m1_lebaran").alias("avg_diff_m1_lebaran"),
+            pl.mean("diff_m3_lebaran").alias("avg_diff_m3_lebaran"),
+            pl.mean("diff_m2_m1").alias("avg_diff_m2_m1"),
+            pl.mean("diff_m3_m2").alias("avg_diff_m3_m2"),
+        ]).with_columns(pl.lit(info["lebaran_period"]).alias("lebaran_period"))
+        zone_rows.append(zone_avg.to_pandas())
+
+    per_event_concat = pl.concat(per_event_dfs)
+    national_summary = pd.concat(national_rows, ignore_index=True)
+    zone_summary = pd.concat(zone_rows, ignore_index=True)
+
+    return per_event_concat, national_summary, zone_summary
+
+------------------------------------------------------------------------
+
+# Cell 3 — weighted summaries + example usage
+
+def build_weight_map(so_df: pl.DataFrame, year_str="2025", period_col="periods", key_col="key", val_col="so_nw_ct"):
+    """
+    Build weight mapping per key using total sales in the year_str (e.g., '2025').
+    Returns a Polars DataFrame with columns ['key','sales_{year}'].
+    """
+    sel = so_df.filter(pl.col(period_col).str.contains(year_str))
+    weight_map = sel.group_by(key_col).agg(pl.col(val_col).sum().alias(f"sales_{year_str}"))
+    return weight_map
+
+def weighted_summaries(per_event_df: pl.DataFrame, weight_map: pl.DataFrame, weight_col_name: str, 
+                       lebaran_period_col="lebaran_period"):
+    """
+    per_event_df: Polars DF from compute_lebaran_diffs (must include key, zone, diffs, lebaran_period)
+    weight_map: Polars DF with ['key', weight_col_name]
+    Returns:
+      - national_weighted_df (Pandas): weighted averages per lebaran_period
+      - zone_weighted_df (Pandas): weighted averages per lebaran_period per zone
+    """
+    merged = per_event_df.join(weight_map, on="key", how="left").fill_null(0)
+    wcol = weight_col_name
+
+    # national numerators/denominators per lebaran_period
+    nat = (
+        merged
+        .group_by(lebaran_period_col)
+        .agg([
+            (pl.col("diff_m1_lebaran") * pl.col(wcol)).sum().alias("num_m1"),
+            (pl.col("diff_m3_lebaran") * pl.col(wcol)).sum().alias("num_m3"),
+            (pl.col("diff_m2_m1") * pl.col(wcol)).sum().alias("num_m2_m1"),
+            (pl.col("diff_m3_m2") * pl.col(wcol)).sum().alias("num_m3_m2"),
+            pl.col(wcol).sum().alias("den")
+        ])
+        .with_columns([
+            pl.when(pl.col("den") == 0).then(None).otherwise(pl.col("num_m1") / pl.col("den")).alias("w_avg_diff_m1_lebaran"),
+            pl.when(pl.col("den") == 0).then(None).otherwise(pl.col("num_m3") / pl.col("den")).alias("w_avg_diff_m3_lebaran"),
+            pl.when(pl.col("den") == 0).then(None).otherwise(pl.col("num_m2_m1") / pl.col("den")).alias("w_avg_diff_m2_m1"),
+            pl.when(pl.col("den") == 0).then(None).otherwise(pl.col("num_m3_m2") / pl.col("den")).alias("w_avg_diff_m3_m2"),
+        ])
+    )
+
+    # zone-level weighted averages
+    zone = (
+        merged
+        .group_by(["lebaran_period", "zone"])
+        .agg([
+            (pl.col("diff_m1_lebaran") * pl.col(wcol)).sum().alias("num_m1"),
+            (pl.col("diff_m3_lebaran") * pl.col(wcol)).sum().alias("num_m3"),
+            (pl.col("diff_m2_m1") * pl.col(wcol)).sum().alias("num_m2_m1"),
+            (pl.col("diff_m3_m2") * pl.col(wcol)).sum().alias("num_m3_m2"),
+            pl.col(wcol).sum().alias("den")
+        ])
+        .with_columns([
+            pl.when(pl.col("den") == 0).then(None).otherwise(pl.col("num_m1") / pl.col("den")).alias("w_avg_diff_m1_lebaran"),
+            pl.when(pl.col("den") == 0).then(None).otherwise(pl.col("num_m3") / pl.col("den")).alias("w_avg_diff_m3_lebaran"),
+            pl.when(pl.col("den") == 0).then(None).otherwise(pl.col("num_m2_m1") / pl.col("den")).alias("w_avg_diff_m2_m1"),
+            pl.when(pl.col("den") == 0).then(None).otherwise(pl.col("num_m3_m2") / pl.col("den")).alias("w_avg_diff_m3_m2"),
+        ])
+    )
+
+    return nat.to_pandas(), zone.to_pandas()
+
+# ---------- Example usage (run after previous cells) ----------
+# 1) compute per-event diffs (unweighted)
+# per_event, national_unweighted, zone_unweighted = compute_lebaran_diffs(so_fcst_df, DEFAULT_LEBARAN_DATES, CONFIG)
+
+# 2) build weight map (2025 sales per key)
+# weight_map = build_weight_map(so_fcst_df, year_str="2025", period_col=CONFIG["period_col"], key_col=CONFIG["group_key"], val_col=CONFIG["value_col"])
+
+# 3) call weighted summaries
+# national_weighted, zone_weighted = weighted_summaries(per_event, weight_map, weight_col_name="sales_2025")
+
+# 4) save or inspect
+# national_weighted.to_csv("national_weighted_lebaran_summary.csv", index=False)
+# zone_weighted.to_csv("zone_weighted_lebaran_summary.csv", index=False)
+
+# 5) quick plot example (national weighted)
+# display(national_weighted)
+# melted = pd.melt(national_weighted, id_vars=["lebaran_period"], value_vars=[
+#     "w_avg_diff_m1_lebaran","w_avg_diff_m3_lebaran","w_avg_diff_m2_m1","w_avg_diff_m3_m2"
+# ], var_name="metric", value_name="value")
+# plt.figure(figsize=(10,4))
+# sns.barplot(data=melted, x="lebaran_period", y="value", hue="metric")
+# plt.axhline(0, color="k", linewidth=0.6)
+# plt.title("Weighted national diffs (weights = 2025 sales per key)")
+# plt.show()
+
+------------------------------------------------------------------------
+
+
+
+------------------------------------------------------------------------
+
+
+
+------------------------------------------------------------------------
+
+
+
+------------------------------------------------------------------------
+
+
+
+------------------------------------------------------------------------

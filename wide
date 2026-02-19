@@ -613,8 +613,41 @@ plt.show()
 
 ------------------------------------------------------------------------
 
+# ----------------------------
+# Year-level differences
+# ----------------------------
 
+pivot["3M_before_minus_during"] = pivot["Jan"] - pivot["Apr"]
+pivot["1M_before_minus_during"] = pivot["Mar"] - pivot["Apr"]
+pivot["2M_before_minus_1M_before"] = pivot["Feb"] - pivot["Mar"]
+pivot["3M_before_minus_2M_before"] = pivot["Jan"] - pivot["Feb"]
 
+print("Year-level National Differences:")
+display(pivot)
+
+# ----------------------------
+# Overall National Number (2023–2025 combined)
+# ----------------------------
+
+overall = pivot[["Jan","Feb","Mar","Apr"]].sum()
+
+overall_diff = pd.DataFrame({
+    "Metric": [
+        "3M_before_minus_during",
+        "1M_before_minus_during",
+        "2M_before_minus_1M_before",
+        "3M_before_minus_2M_before"
+    ],
+    "Value": [
+        overall["Jan"] - overall["Apr"],
+        overall["Mar"] - overall["Apr"],
+        overall["Feb"] - overall["Mar"],
+        overall["Jan"] - overall["Feb"]
+    ]
+})
+
+print("Combined 2023–2025 National Numbers:")
+display(overall_diff)
 
 ------------------------------------------------------------------------
 

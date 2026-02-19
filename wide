@@ -492,9 +492,137 @@ plt.show()
 
 ------------------------------------------------------------------------
 
+import polars as pl
+import pandas as pd
+
+df = so_fcst_df
+
+# -------------------------------
+# 1. Extract components from key
+# Adjust if positions differ
+# -------------------------------
+article_index = 0
+soldto_index = 1
+shipto_index = 2
+
+df = df.with_columns([
+    pl.col("key").str.split("_").list.get(article_index).alias("article"),
+    pl.col("key").str.split("_").list.get(soldto_index).alias("soldto"),
+    pl.col("key").str.split("_").list.get(shipto_index).alias("shipto"),
+])
+
+# -------------------------------
+# 2. Manual Filters (edit as needed)
+# -------------------------------
+
+# df = df.filter(pl.col("soldto") == "XXXX")
+# df = df.filter(pl.col("shipto") == "XXXX")
+# df = df.filter(pl.col("article") == "XXXX")
+
+# -------------------------------
+# 3. Date Columns
+# -------------------------------
+
+df = df.with_columns(
+    pl.col("periods").str.strptime(pl.Date, format="%Y %m").alias("period_dt")
+)
+
+df = df.with_columns([
+    pl.col("period_dt").dt.year().alias("year"),
+    pl.col("period_dt").dt.month().alias("month")
+])
+
+df = df.filter(pl.col("year").is_in([2023, 2024, 2025]))
+
+# -------------------------------
+# 4. Optional Pareto
+# -------------------------------
+
+PARETO_RATIO = None   # Example: 0.8
+
+if PARETO_RATIO is not None:
+    total_by_key = (
+        df.group_by("key")
+          .agg(pl.col("so_nw_ct").sum().alias("total_sales"))
+          .sort("total_sales", descending=True)
+    )
+
+    total_sum = total_by_key["total_sales"].sum()
+
+    total_by_key = total_by_key.with_columns(
+        (pl.col("total_sales").cumsum() / total_sum).alias("cum_ratio")
+    )
+
+    top_keys = total_by_key.filter(pl.col("cum_ratio") <= PARETO_RATIO)["key"]
+
+    df = df.filter(pl.col("key").is_in(top_keys))
+
+df.head()
+
+------------------------------------------------------------------------
+
+# Focus months: Feb (2), Mar (3), Apr (4)
+
+focus_months = [2, 3, 4]
+
+comparison = (
+    df.filter(pl.col("month").is_in(focus_months))
+      .group_by(["year", "month"])
+      .agg(pl.col("so_nw_ct").sum().alias("sales"))
+)
+
+comparison_pd = comparison.to_pandas()
+
+pivot = comparison_pd.pivot(
+    index="year",
+    columns="month",
+    values="sales"
+).reset_index()
+
+pivot = pivot.rename(columns={
+    2: "February",
+    3: "March",
+    4: "April"
+})
+
+pivot = pivot.fillna(0)
+
+pivot
+
+------------------------------------------------------------------------
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+x = np.arange(len(pivot["year"]))
+width = 0.25
+
+plt.figure(figsize=(11,5))
+
+plt.bar(x - width, pivot["February"], width, label="February")
+plt.bar(x, pivot["March"], width, label="March")
+plt.bar(x + width, pivot["April"], width, label="April (Lebaran)")
+
+plt.xticks(x, pivot["year"])
+plt.ylabel("Total Sales (so_nw_ct)")
+plt.title("Sales Comparison: February vs March vs April (Lebaran)")
+plt.legend()
+
+plt.tight_layout()
+plt.show()
+
+------------------------------------------------------------------------
+
+
 
 
 ------------------------------------------------------------------------
+
+
+
+
+------------------------------------------------------------------------
+
 
 
 

@@ -6,6 +6,13 @@ pivot_zone_2b = pivot_zone[
 
 pivot_zone_2b = pivot_zone[pivot_zone["zone"] == "2B"]
 
+top_row = pivot_zone_2b.sort_values(
+    "3M_before_minus_during_ratio",
+    ascending=False
+).head(1)
+
+display(top_row)
+
 
 # CONFIG
 DEFAULT_LEBARAN_DATES = [

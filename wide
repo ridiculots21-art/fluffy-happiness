@@ -1,37 +1,48 @@
-ratio_cols = [
-    "3M_before_minus_during_ratio",
-    "1M_before_minus_during_ratio",
-    "2M_before_minus_1M_before_ratio",
-    "3M_before_minus_2M_before_ratio"
+# cell 3
+comparison = (
+  df
+  .with_columns(
+      pl.col("year").map_dict(LEBARAN_MONTH).alias("lebaran_month")
+  )
+  .filter(
+      (pl.col("month") == pl.col("lebaran_month")) |
+      (pl.col("month") == pl.col("lebaran_month") - 1)
+  )
+  .group_by(["key", "year", "month"])
+  .agg(pl.col("so_nw_ct").sum().alias("sales"))
+)
+
+# cell 1
+for year in [2023, 2024, 2025]:
+  lebaran_date = pd.Timestamp(f"{year}-{LEBARAN_MONTH[year]:02d}-01")
+
+# cell 6
+pivot["3M - Lebaran"] = [
+    pivot.loc[i, "Jan"] - pivot.loc[i, 
+        "Apr" if LEBARAN_MONTH[pivot.loc[i, "year"]] == 4 else "Mar"
+    ]
+    for i in pivot.index
 ]
 
-max_rows = []
+pivot["1M - Lebaran"] = [
+    pivot.loc[i, "Mar"] - pivot.loc[i, 
+        "Apr" if LEBARAN_MONTH[pivot.loc[i, "year"]] == 4 else "Mar"
+    ]
+    for i in pivot.index
+]
 
-for col in ratio_cols:
-    idx = pivot_zone[col].idxmax()   # index of max value
-    row = pivot_zone.loc[idx].copy()
-    row["metric"] = col              # label which ratio this came from
-    max_rows.append(row)
-
-max_ratio_rows = pd.DataFrame(max_rows)
-
-display(max_ratio_rows)
-
-display(max_ratio_rows[["metric", "zone", "year"] + ratio_cols])
-
-
-min_rows = []
-
-for col in ratio_cols:
-    idx = pivot_zone[col].idxmin()
-    row = pivot_zone.loc[idx].copy()
-    row["metric"] = col
-    min_rows.append(row)
-
-min_ratio_rows = pd.DataFrame(min_rows)
-
-display(min_ratio_rows)
-
+# cell 7
+pivot["3M - Lebaran"] = [
+    (pivot.loc[i, "Jan"] - pivot.loc[i,
+        "Apr" if LEBARAN_MONTH[pivot.loc[i, "year"]] == 4 else "Mar"
+    ]) /
+    (pivot.loc[i,
+        "Apr" if LEBARAN_MONTH[pivot.loc[i, "year"]] == 4 else "Mar"
+    ] if pivot.loc[i,
+        "Apr" if LEBARAN_MONTH[pivot.loc[i, "year"]] == 4 else "Mar"
+    ] != 0 else None)
+    for i in pivot.index
+]
 
 
 # CONFIG

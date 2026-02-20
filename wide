@@ -1236,3 +1236,58 @@ for year, month in lebaran_cfg.items():
 lebaran_df = pl.DataFrame(rows)
 
 lebaran_df
+
+
+
+
+
+
+# reshape to long format
+lebaran_long = (
+    lebaran_df
+    .select([
+        pl.col("L_year").alias("target_year"),
+        pl.struct(["L_year", "L_month"]).alias("L"),
+        pl.struct(["L_1_year", "L_1_month"]).alias("L_1"),
+        pl.struct(["L_2_year", "L_2_month"]).alias("L_2"),
+        pl.struct(["L_3_year", "L_3_month"]).alias("L_3"),
+    ])
+    .melt(
+        id_vars="target_year",
+        variable_name="period_type",
+        value_name="ym_struct"
+    )
+    .with_columns([
+        pl.col("ym_struct").struct.field("L_year").alias("year"),
+        pl.col("ym_struct").struct.field("L_month").alias("month"),
+    ])
+    .drop("ym_struct")
+)
+
+lebaran_long
+
+
+
+df_lebaran = df_pareto.join(
+    lebaran_long,
+    on=["year", "month"],
+    how="inner"
+)
+
+df_lebaran.head()
+
+
+
+
+pivot_df = (
+    df_lebaran
+    .group_by(["key", "target_year", "period_type"])
+    .agg(pl.col("so_nw_ct").sum())
+    .pivot(
+        index=["key", "target_year"],
+        columns="period_type",
+        values="so_nw_ct"
+    )
+)
+
+pivot_df.head()

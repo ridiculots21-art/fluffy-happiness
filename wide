@@ -1303,3 +1303,56 @@ pivot_df = (
 )
 
 pivot_df.head()
+
+
+
+
+
+
+
+ratio_df = pivot_df.with_columns([
+
+    # Differences
+    (pl.col("L_3") - pl.col("L")).alias("diff_3m_vs_L"),
+    (pl.col("L_1") - pl.col("L")).alias("diff_1m_vs_L"),
+    (pl.col("L_2") - pl.col("L_1")).alias("diff_2m_vs_1m"),
+    (pl.col("L_3") - pl.col("L_2")).alias("diff_3m_vs_2m"),
+
+    # Ratios (Option B denominator)
+    pl.when(pl.col("L_3") > 0)
+      .then((pl.col("L_3") - pl.col("L")) / pl.col("L_3"))
+      .otherwise(None)
+      .alias("ratio_3m_vs_L"),
+
+    pl.when(pl.col("L_1") > 0)
+      .then((pl.col("L_1") - pl.col("L")) / pl.col("L_1"))
+      .otherwise(None)
+      .alias("ratio_1m_vs_L"),
+
+    pl.when(pl.col("L_2") > 0)
+      .then((pl.col("L_2") - pl.col("L_1")) / pl.col("L_2"))
+      .otherwise(None)
+      .alias("ratio_2m_vs_1m"),
+
+    pl.when(pl.col("L_3") > 0)
+      .then((pl.col("L_3") - pl.col("L_2")) / pl.col("L_3"))
+      .otherwise(None)
+      .alias("ratio_3m_vs_2m"),
+
+])
+
+ratio_df.head()
+
+
+
+
+
+
+national_avg = ratio_df.select([
+    pl.col("ratio_3m_vs_L").mean().alias("national_3m_vs_L"),
+    pl.col("ratio_1m_vs_L").mean().alias("national_1m_vs_L"),
+    pl.col("ratio_2m_vs_1m").mean().alias("national_2m_vs_1m"),
+    pl.col("ratio_3m_vs_2m").mean().alias("national_3m_vs_2m"),
+])
+
+national_avg

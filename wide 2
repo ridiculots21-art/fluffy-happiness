@@ -321,7 +321,22 @@ zone_summary_df
 
 -----------------------------------------------------------------------
 
+# ============================================
+# FIX — Add Zone Back to lebaran_metrics_df
+# ============================================
 
+key_zone_map = (
+    df_pareto
+    .select(["key", "zone"])
+    .unique()
+)
+
+lebaran_metrics_df = (
+    lebaran_metrics_df
+    .join(key_zone_map, on="key", how="left")
+)
+
+lebaran_metrics_df.columns
 
 -----------------------------------------------------------------------
 

@@ -1115,159 +1115,89 @@ print("Saved summary CSVs: national_by_year_jan_apr_avg.csv, national_combined_j
 ---------------------------------------------------------------------------------------------------------------------------
 
 
-df_pareto = df_pareto.with_columns(
+
+# configuration
+lebaran_cfg = {
+    2023: 4,
+    2024: 4,
+    2025: 3
+}
+
+# build a small helper table with L, L-1, L-2, L-3
+rows = []
+
+for year, month in lebaran_cfg.items():
+    lebaran_dt = date(year, month, 1)
+
+    rows.append({
+        "year": year,
+        "L": lebaran_dt,
+        "L_1": lebaran_dt - relativedelta(months=1),
+        "L_2": lebaran_dt - relativedelta(months=2),
+        "L_3": lebaran_dt - relativedelta(months=3),
+    })
+
+lebaran_df = pl.DataFrame(rows)
+
+lebaran_df
+
+---------------------------------------------------------------------------------------------------------------------------
+
+df = so_fcst_df.with_columns(
     pl.col("periods").str.strptime(pl.Date, format="%Y %m").alias("period_dt")
-)
+).with_columns([
+    pl.col("period_dt").dt.year().alias("year"),
+    pl.col("period_dt").dt.month().alias("month")
+])
 
-# Monthly aggregation (safe)
-monthly = (
-    df_pareto
-    .group_by(["key", "zone", "period_dt"])
-    .agg(pl.col("so_nw_ct").sum().alias("sales"))
-)
+# apply pareto if needed
+pareto_key = None
 
----------------------------------------------------------------------------------------------------------------------------
-
-# Lebaran configuration
-lebaran_cfg = pl.DataFrame({
-    "lebaran_year": [2023, 2024, 2025],
-    "lebaran_month": [4, 4, 3]
-}).with_columns(
-    pl.date(
-        pl.col("lebaran_year"),
-        pl.col("lebaran_month"),
-        pl.lit(1)
-    ).alias("lebaran_dt")
-)
-
-# Create offsets table
-offsets = pl.DataFrame({
-    "offset": [0, -1, -2, -3]
-})
-
-# Cross join keys × lebaran × offsets
-keys = monthly.select(["key", "zone"]).unique()
-
-target = (
-    keys
-    .join(lebaran_cfg, how="cross")
-    .join(offsets, how="cross")
-    .with_columns(
-        pl.col("lebaran_dt")
-        .dt.offset_by(pl.format("{}mo", pl.col("offset")))
-        .alias("period_dt")
-    )
-)
+if pareto_key is not None:
+    df_pareto = apply_pareto(df, pareto_key)
+else:
+    df_pareto = df
 
 ---------------------------------------------------------------------------------------------------------------------------
 
-joined = (
-    target
-    .join(
-        monthly,
-        on=["key", "zone", "period_dt"],
-        how="left"
-    )
-    .with_columns(pl.col("sales").fill_null(0))
+# reshape lebaran_df to long format for matching
+lebaran_long = (
+    lebaran_df
+    .melt(id_vars="year", variable_name="period_type", value_name="period_dt")
 )
 
-# Map offset to name
-joined = joined.with_columns(
-    pl.when(pl.col("offset") == 0).then("L")
-    .when(pl.col("offset") == -1).then("M1")
-    .when(pl.col("offset") == -2).then("M2")
-    .when(pl.col("offset") == -3).then("M3")
-    .alias("period_type")
+# join to get only rows relevant to Lebaran windows
+df_lebaran = df_pareto.join(
+    lebaran_long,
+    on=["year", "period_dt"],
+    how="inner"
 )
 
-# Pivot
-pivot = (
-    joined
+df_lebaran.head()
+
+---------------------------------------------------------------------------------------------------------------------------
+pivot_df = (
+    df_lebaran
+    .group_by(["key", "year", "period_type"])
+    .agg(pl.col("so_nw_ct").sum())
     .pivot(
-        values="sales",
-        index=["key", "zone", "lebaran_year"],
+        index=["key", "year"],
         columns="period_type",
-        aggregate_function="sum"
+        values="so_nw_ct"
     )
 )
 
-# Guarantee columns exist
-for col in ["L", "M1", "M2", "M3"]:
-    if col not in pivot.columns:
-        pivot = pivot.with_columns(pl.lit(0).alias(col))
+pivot_df.head()
 
-pivot = pivot.with_columns([
-    pl.col("L").fill_null(0),
-    pl.col("M1").fill_null(0),
-    pl.col("M2").fill_null(0),
-    pl.col("M3").fill_null(0),
+---------------------------------------------------------------------------------------------------------------------------
+diff_df = pivot_df.with_columns([
+    (pl.col("L_3") - pl.col("L")).alias("diff_3m_vs_L"),
+    (pl.col("L_1") - pl.col("L")).alias("diff_1m_vs_L"),
+    (pl.col("L_2") - pl.col("L_1")).alias("diff_2m_vs_1m"),
+    (pl.col("L_3") - pl.col("L_2")).alias("diff_3m_vs_2m"),
 ])
+
+diff_df.head()
 
 ---------------------------------------------------------------------------------------------------------------------------
 
-result = pivot.with_columns([
-    (pl.col("M3") - pl.col("L")).alias("diff_M3_L"),
-    (pl.col("M1") - pl.col("L")).alias("diff_M1_L"),
-    (pl.col("M2") - pl.col("M1")).alias("diff_M2_M1"),
-    (pl.col("M3") - pl.col("M2")).alias("diff_M3_M2"),
-])
-
-result = result.with_columns([
-    pl.when(pl.col("L") > 0)
-      .then((pl.col("diff_M3_L") / pl.col("L")) * 100)
-      .otherwise(None)
-      .alias("pct_M3_L"),
-
-    pl.when(pl.col("L") > 0)
-      .then((pl.col("diff_M1_L") / pl.col("L")) * 100)
-      .otherwise(None)
-      .alias("pct_M1_L"),
-
-    pl.when(pl.col("M1") > 0)
-      .then((pl.col("diff_M2_M1") / pl.col("M1")) * 100)
-      .otherwise(None)
-      .alias("pct_M2_M1"),
-
-    pl.when(pl.col("M2") > 0)
-      .then((pl.col("diff_M3_M2") / pl.col("M2")) * 100)
-      .otherwise(None)
-      .alias("pct_M3_M2"),
-])
-
-result = result.with_columns(
-    pl.mean_horizontal([
-        "pct_M3_L",
-        "pct_M1_L",
-        "pct_M2_M1",
-        "pct_M3_M2"
-    ]).round(2).alias("avg_pct")
-)
-
----------------------------------------------------------------------------------------------------------------------------
-national = (
-    result
-    .filter(pl.col("avg_pct").is_not_null())
-    .group_by("lebaran_year")
-    .agg([
-        pl.col("avg_pct").mean().round(2).alias("national_avg_pct"),
-        pl.count().alias("combination_count")
-    ])
-    .sort("lebaran_year")
-)
-
-national
-
----------------------------------------------------------------------------------------------------------------------------
-zone_level = (
-    result
-    .filter(pl.col("avg_pct").is_not_null())
-    .group_by(["lebaran_year", "zone"])
-    .agg([
-        pl.col("avg_pct").mean().round(2).alias("zone_avg_pct"),
-        pl.count().alias("combination_count"),
-        pl.col("L").sum().alias("total_lebaran_sales")
-    ])
-    .sort(["lebaran_year", "zone"])
-)
-
-zone_level

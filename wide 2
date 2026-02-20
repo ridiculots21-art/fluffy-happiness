@@ -55,7 +55,75 @@ df_pareto.head()
 
 -----------------------------------------------------------------------
 
+# ============================================
+# CELL 2 — BUILD LEBARAN STRUCTURE
+# ============================================
 
+# Flexible Lebaran configuration
+lebaran_cfg = {
+    2023: 4,   # April
+    2024: 4,   # April
+    2025: 3    # March
+}
+
+all_years_list = []
+
+for year, leb_month in lebaran_cfg.items():
+    
+    # Define dates
+    lebaran_dt = datetime(year, leb_month, 1)
+    
+    p_leb = lebaran_dt.strftime("%Y %m")
+    p_m1  = (lebaran_dt - relativedelta(months=1)).strftime("%Y %m")
+    p_m2  = (lebaran_dt - relativedelta(months=2)).strftime("%Y %m")
+    p_m3  = (lebaran_dt - relativedelta(months=3)).strftime("%Y %m")
+    
+    print(f"\nProcessing Lebaran {year}")
+    print("Lebaran:", p_leb)
+    print("M-1:", p_m1)
+    print("M-2:", p_m2)
+    print("M-3:", p_m3)
+    
+    # Filter only required periods
+    temp_df = df_pareto.filter(
+        pl.col("periods").is_in([p_leb, p_m1, p_m2, p_m3])
+    )
+    
+    # Pivot
+    pivot_df = temp_df.pivot(
+        on="periods",
+        index="key",
+        values="so_nw_ct",
+        aggregate_function="sum"
+    )
+    
+    # Ensure all columns exist
+    for colname in [p_leb, p_m1, p_m2, p_m3]:
+        if colname not in pivot_df.columns:
+            pivot_df = pivot_df.with_columns(pl.lit(0).alias(colname))
+    
+    # Rename to standard names
+    pivot_df = pivot_df.rename({
+        p_leb: "lebaran_sales",
+        p_m1: "m1_sales",
+        p_m2: "m2_sales",
+        p_m3: "m3_sales"
+    })
+    
+    # Add year column
+    pivot_df = pivot_df.with_columns(
+        pl.lit(year).alias("lebaran_year")
+    )
+    
+    all_years_list.append(pivot_df)
+
+# Combine all years
+lebaran_base_df = pl.concat(all_years_list)
+
+print("\nBase Lebaran Data Shape:")
+print(lebaran_base_df.shape)
+
+lebaran_base_df.head()
 
 -----------------------------------------------------------------------
 

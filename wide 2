@@ -1,0 +1,92 @@
+def prepare_df_and_pareto(so_fcst_df: pl.DataFrame, pareto_ratio: float = None):
+    
+    # Convert periods to date
+    df = so_fcst_df.with_columns(
+        pl.col("periods").str.strptime(pl.Date, "%Y %m").alias("period_dt")
+    ).with_columns([
+        pl.col("period_dt").dt.year().alias("year"),
+        pl.col("period_dt").dt.month().alias("month")
+    ])
+    
+    # Keep only 2023–2025
+    df = df.filter(pl.col("year").is_in([2023, 2024, 2025]))
+
+    # ----------------------
+    # Pareto function
+    # ----------------------
+    def apply_pareto(df_input: pl.DataFrame, ratio: float):
+
+        total_by_key = (
+            df_input
+            .group_by("key")
+            .agg(pl.col("so_nw_ct").sum().alias("total_sales"))
+            .sort("total_sales", descending=True)
+        )
+
+        total_sum = total_by_key["total_sales"].sum()
+
+        total_by_key = total_by_key.with_columns(
+            (pl.col("total_sales").cumsum() / total_sum).alias("cum_ratio")
+        )
+
+        top_keys = total_by_key.filter(
+            pl.col("cum_ratio") <= ratio
+        )["key"]
+
+        return df_input.filter(pl.col("key").is_in(top_keys))
+
+    # Apply pareto if requested
+    if pareto_ratio is not None:
+        df_pareto = apply_pareto(df, pareto_ratio)
+    else:
+        df_pareto = df
+
+    return df, df_pareto
+
+
+-----------------------------------------------------------------------
+
+pareto_ratio = 0.8   # or None if you want all
+
+df, df_pareto = prepare_df_and_pareto(so_fcst_df, pareto_ratio)
+
+print(df_pareto.shape)
+df_pareto.head()
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------

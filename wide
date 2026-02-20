@@ -1356,3 +1356,31 @@ national_avg = ratio_df.select([
 ])
 
 national_avg
+
+
+
+national_yearly = (
+    ratio_df
+    .group_by("year")
+    .agg([
+        pl.col("ratio_3m_vs_L").mean().alias("national_3m_vs_L"),
+        pl.col("ratio_1m_vs_L").mean().alias("national_1m_vs_L"),
+        pl.col("ratio_2m_vs_1m").mean().alias("national_2m_vs_1m"),
+        pl.col("ratio_3m_vs_2m").mean().alias("national_3m_vs_2m"),
+    ])
+    .sort("year")
+)
+
+
+
+ratio_with_national = ratio_df.join(
+    national_avg,
+    how="cross"
+)
+
+
+
+ratio_with_national = ratio_with_national.with_columns([
+    (pl.col("ratio_3m_vs_L") - pl.col("national_3m_vs_L"))
+        .alias("zone_vs_national_3m"),
+])

@@ -1131,14 +1131,13 @@ print("monthly_df rows:", monthly_df.shape[0])
 monthly_df.head()
 
 ---------------------------------------------------------------------------------------------------------------------------
-# Cell 2: build (key x lebaran period x offset) rows and join monthly sales
-# Offsets we need: 0 (lebaran month), -1, -2, -3
+
+# Cell 2 (FIXED): build (key x lebaran period x offset) rows and join monthly sales
+
 offsets = [0, -1, -2, -3]
 
-# get unique keys and zones from df_pareto
 keys_zones = df_pareto.select(["key", "zone"]).unique().to_dicts()
 
-# build target rows in python (safe and straightforward)
 rows = []
 for rec in keys_zones:
     key = rec["key"]
@@ -1157,53 +1156,61 @@ for rec in keys_zones:
 
 target_df = pl.DataFrame(rows)
 
-# convert monthly_df.period_dt to python.date to ensure join compatibility (if needed)
-# monthly_df.period_dt may be polars date type; convert to python date for join key consistency
-monthly_join = monthly_df.with_columns(
-    pl.col("period_dt").apply(lambda d: d.to_python().date() if d is not None else None).alias("period_date")
+# Ensure monthly_df period_dt is Date (no python conversion)
+monthly_df = monthly_df.with_columns(
+    pl.col("period_dt").cast(pl.Date)
 )
 
-# join on key + period_date == target_period_dt
+# Join
 target_with_sales = (
     target_df
     .join(
-        monthly_join.rename({"period_date": "target_period_dt"}),
+        monthly_df.rename({"period_dt": "target_period_dt"}),
         on=["key", "zone", "target_period_dt"],
         how="left"
     )
     .select([
-        "key", "zone", "lebaran_year", "lebaran_month", "offset", 
+        "key", "zone", "lebaran_year", "lebaran_month", "offset",
         pl.col("target_period_dt").alias("period_dt"),
         pl.col("so_nw_ct")
     ])
     .with_columns(pl.col("so_nw_ct").fill_null(0))
 )
 
-# pivot offsets into columns m_0 (lebaran), m_1 (1 month before), etc.
-# we will map offsets->names: 0 -> 'lebaran', -1 -> 'm_1', -2 -> 'm_2', -3 -> 'm_3'
-offset_name_map = {0: "lebaran", -1: "m_1", -2: "m_2", -3: "m_3"}
+# Map offset → name WITHOUT apply
+target_with_sales = target_with_sales.with_columns(
+    pl.when(pl.col("offset") == 0).then("lebaran")
+    .when(pl.col("offset") == -1).then("m_1")
+    .when(pl.col("offset") == -2).then("m_2")
+    .when(pl.col("offset") == -3).then("m_3")
+    .alias("offset_name")
+)
+
 target_pivot = (
     target_with_sales
-    .with_columns(pl.col("offset").apply(lambda x: offset_name_map[x]).alias("offset_name"))
-    .pivot(values="so_nw_ct", index=["key", "zone", "lebaran_year", "lebaran_month"], columns="offset_name", aggregate_function="sum")
+    .pivot(
+        values="so_nw_ct",
+        index=["key", "zone", "lebaran_year", "lebaran_month"],
+        columns="offset_name",
+        aggregate_function="sum"
+    )
     .with_columns([
-        # ensure missing month columns exist (fill with 0 if missing)
-        pl.when(pl.col("lebaran").is_null()).then(0).otherwise(pl.col("lebaran")).alias("lebaran"),
-        pl.when(pl.col("m_1").is_null()).then(0).otherwise(pl.col("m_1")).alias("m_1"),
-        pl.when(pl.col("m_2").is_null()).then(0).otherwise(pl.col("m_2")).alias("m_2"),
-        pl.when(pl.col("m_3").is_null()).then(0).otherwise(pl.col("m_3")).alias("m_3"),
+        pl.col("lebaran").fill_null(0),
+        pl.col("m_1").fill_null(0),
+        pl.col("m_2").fill_null(0),
+        pl.col("m_3").fill_null(0),
     ])
     .sort(["lebaran_year", "key"])
 )
 
-print("target_pivot rows:", target_pivot.shape[0])
 target_pivot.head()
 
 ---------------------------------------------------------------------------------------------------------------------------
-# Cell 3: compute diffs and percentage ratios (handle zero denominators safely)
+
+# Cell 3: compute diffs and pct ratios safely
+
 tp = target_pivot
 
-# differences (absolute)
 tp = tp.with_columns([
     (pl.col("m_3") - pl.col("lebaran")).alias("d_3m_minus_lebaran"),
     (pl.col("m_1") - pl.col("lebaran")).alias("d_1m_minus_lebaran"),
@@ -1211,10 +1218,6 @@ tp = tp.with_columns([
     (pl.col("m_3") - pl.col("m_2")).alias("d_3m_minus_2m"),
 ])
 
-# percentage ratios: choose denominator per difference:
-# - for ..._minus_lebaran -> denom = lebaran
-# - for 2m_minus_1m -> denom = m_1
-# - for 3m_minus_2m -> denom = m_2
 tp = tp.with_columns([
     pl.when(pl.col("lebaran") > 0)
       .then((pl.col("d_3m_minus_lebaran") / pl.col("lebaran")) * 100)
@@ -1237,31 +1240,21 @@ tp = tp.with_columns([
       .alias("pct_3m_vs_2m(%)"),
 ])
 
-# average the available percentage ratios per (key,lebaran_year)
-# average should ignore nulls (we'll compute mean across the four pct columns)
-pct_cols = ["pct_3m_vs_lebaran(%)", "pct_1m_vs_lebaran(%)", "pct_2m_vs_1m(%)", "pct_3m_vs_2m(%)"]
-
-# create a horizontal mean that ignores nulls
+# Horizontal average (safe, ignores nulls automatically)
 tp = tp.with_columns(
-    pl.concat_list([pl.col(c) for c in pct_cols]).alias("pct_list")
-).with_columns(
-    pl.col("pct_list").arr.eval(pl.element(), parallel=True).alias("pct_list_eval")  # ensure array
-).with_columns(
-    pl.when(pl.col("pct_list").arr.lengths() > 0)
-      .then(pl.col("pct_list").arr.mean().round(2))
-      .otherwise(None)
-      .alias("avg_pct_all_four(%)")
-).drop(["pct_list", "pct_list_eval"])
+    (
+        pl.mean_horizontal([
+            "pct_3m_vs_lebaran(%)",
+            "pct_1m_vs_lebaran(%)",
+            "pct_2m_vs_1m(%)",
+            "pct_3m_vs_2m(%)"
+        ])
+    ).round(2).alias("avg_pct_all_four(%)")
+)
 
-# final per-key, per-lebaran-year table
-per_key_lebaran = tp.select([
-    "key", "zone", "lebaran_year", "lebaran_month", "lebaran", "m_1", "m_2", "m_3",
-    *["d_3m_minus_lebaran", "d_1m_minus_lebaran", "d_2m_minus_1m", "d_3m_minus_2m"],
-    *pct_cols,
-    "avg_pct_all_four(%)"
-])
+per_key_lebaran = tp
 
-per_key_lebaran.head(10)
+per_key_lebaran.head()
 
 ---------------------------------------------------------------------------------------------------------------------------
 

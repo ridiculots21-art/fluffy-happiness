@@ -271,7 +271,53 @@ national_summary_df
 
 -----------------------------------------------------------------------
 
+# ============================================
+# CELL 5 — ZONE LEVEL METRICS
+# ============================================
 
+# ---- Per Year per Zone ----
+zone_by_year_df = (
+    lebaran_metrics_df
+    .group_by(["lebaran_year", "zone"])
+    .agg([
+        pl.col("pct 3m - leb").mean().alias("zone pct 3m - leb"),
+        pl.col("pct 1m - leb").mean().alias("zone pct 1m - leb"),
+        pl.col("pct 2m - 1m").mean().alias("zone pct 2m - 1m"),
+        pl.col("pct 3m - 2m").mean().alias("zone pct 3m - 2m")
+    ])
+    .sort(["lebaran_year", "zone"])
+)
+
+# ---- All Years per Zone ----
+zone_all_years_df = (
+    lebaran_metrics_df
+    .group_by("zone")
+    .agg([
+        pl.col("pct 3m - leb").mean().alias("zone pct 3m - leb"),
+        pl.col("pct 1m - leb").mean().alias("zone pct 1m - leb"),
+        pl.col("pct 2m - 1m").mean().alias("zone pct 2m - 1m"),
+        pl.col("pct 3m - 2m").mean().alias("zone pct 3m - 2m")
+    ])
+    .with_columns(
+        pl.lit("All Years").alias("lebaran_year")
+    )
+    .select([
+        "lebaran_year",
+        "zone",
+        "zone pct 3m - leb",
+        "zone pct 1m - leb",
+        "zone pct 2m - 1m",
+        "zone pct 3m - 2m"
+    ])
+)
+
+# ---- Combine ----
+zone_summary_df = pl.concat([
+    zone_by_year_df,
+    zone_all_years_df
+])
+
+zone_summary_df
 
 -----------------------------------------------------------------------
 

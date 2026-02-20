@@ -188,7 +188,49 @@ lebaran_metrics_df.head()
 
 -----------------------------------------------------------------------
 
+# ============================================
+# CELL 4 — NATIONAL NUMBERS
+# ============================================
 
+# Simple mean across all keys
+national_simple_df = (
+    lebaran_metrics_df
+    .group_by("lebaran_year")
+    .agg([
+        pl.col("avg_pct_change").mean().alias("national_avg_pct"),
+        pl.count().alias("number_of_keys"),
+        pl.col("lebaran_sales").sum().alias("total_lebaran_sales")
+    ])
+)
+
+# Weighted mean (weight by lebaran_sales)
+national_weighted_df = (
+    lebaran_metrics_df
+    .with_columns(
+        (pl.col("avg_pct_change") * pl.col("lebaran_sales")).alias("weighted_component")
+    )
+    .group_by("lebaran_year")
+    .agg([
+        pl.col("weighted_component").sum().alias("weighted_sum"),
+        pl.col("lebaran_sales").sum().alias("total_lebaran_sales")
+    ])
+    .with_columns(
+        (pl.col("weighted_sum") / pl.col("total_lebaran_sales")).alias("national_weighted_avg_pct")
+    )
+    .select([
+        "lebaran_year",
+        "national_weighted_avg_pct"
+    ])
+)
+
+# Combine
+national_summary_df = national_simple_df.join(
+    national_weighted_df,
+    on="lebaran_year",
+    how="left"
+)
+
+national_summary_df.sort("lebaran_year")
 
 -----------------------------------------------------------------------
 

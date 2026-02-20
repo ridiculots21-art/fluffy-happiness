@@ -1242,27 +1242,39 @@ lebaran_df
 
 
 
-# reshape to long format
-lebaran_long = (
-    lebaran_df
-    .select([
-        pl.col("L_year").alias("target_year"),
-        pl.struct(["L_year", "L_month"]).alias("L"),
-        pl.struct(["L_1_year", "L_1_month"]).alias("L_1"),
-        pl.struct(["L_2_year", "L_2_month"]).alias("L_2"),
-        pl.struct(["L_3_year", "L_3_month"]).alias("L_3"),
-    ])
-    .melt(
-        id_vars="target_year",
-        variable_name="period_type",
-        value_name="ym_struct"
-    )
-    .with_columns([
-        pl.col("ym_struct").struct.field("L_year").alias("year"),
-        pl.col("ym_struct").struct.field("L_month").alias("month"),
-    ])
-    .drop("ym_struct")
-)
+rows = []
+
+for r in lebaran_df.iter_rows(named=True):
+
+    rows.append({
+        "target_year": r["L_year"],
+        "period_type": "L",
+        "year": r["L_year"],
+        "month": r["L_month"],
+    })
+
+    rows.append({
+        "target_year": r["L_year"],
+        "period_type": "L_1",
+        "year": r["L_1_year"],
+        "month": r["L_1_month"],
+    })
+
+    rows.append({
+        "target_year": r["L_year"],
+        "period_type": "L_2",
+        "year": r["L_2_year"],
+        "month": r["L_2_month"],
+    })
+
+    rows.append({
+        "target_year": r["L_year"],
+        "period_type": "L_3",
+        "year": r["L_3_year"],
+        "month": r["L_3_month"],
+    })
+
+lebaran_long = pl.DataFrame(rows)
 
 lebaran_long
 

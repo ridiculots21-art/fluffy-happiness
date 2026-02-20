@@ -232,6 +232,24 @@ national_summary_df = national_simple_df.join(
 
 national_summary_df.sort("lebaran_year")
 
+# ============================================
+# CELL 4 — NATIONAL 4 PERCENTAGE METRICS
+# ============================================
+
+national_summary_df = (
+    lebaran_metrics_df
+    .group_by("lebaran_year")
+    .agg([
+        pl.col("pct 3m - leb").mean().alias("national pct 3m - leb"),
+        pl.col("pct 1m - leb").mean().alias("national pct 1m - leb"),
+        pl.col("pct 2m - 1m").mean().alias("national pct 2m - 1m"),
+        pl.col("pct 3m - 2m").mean().alias("national pct 3m - 2m")
+    ])
+    .sort("lebaran_year")
+)
+
+national_summary_df
+
 -----------------------------------------------------------------------
 
 

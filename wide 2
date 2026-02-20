@@ -127,7 +127,64 @@ lebaran_base_df.head()
 
 -----------------------------------------------------------------------
 
+# ============================================
+# CELL 3 — CALCULATE DIFF + PERCENTAGE
+# ============================================
 
+lebaran_metrics_df = lebaran_base_df.with_columns([
+
+    # -----------------------
+    # Raw Differences
+    # -----------------------
+    (pl.col("m3_sales") - pl.col("lebaran_sales")).alias("d_3m_minus_leb"),
+    (pl.col("m1_sales") - pl.col("lebaran_sales")).alias("d_1m_minus_leb"),
+    (pl.col("m2_sales") - pl.col("m1_sales")).alias("d_2m_minus_1m"),
+    (pl.col("m3_sales") - pl.col("m2_sales")).alias("d_3m_minus_2m"),
+
+]).with_columns([
+
+    # -----------------------
+    # Percentage Ratios (A - B) / A
+    # -----------------------
+    pl.when(pl.col("m3_sales") > 0)
+      .then((pl.col("m3_sales") - pl.col("lebaran_sales")) / pl.col("m3_sales"))
+      .otherwise(0)
+      .alias("pct_3m_minus_leb"),
+
+    pl.when(pl.col("m1_sales") > 0)
+      .then((pl.col("m1_sales") - pl.col("lebaran_sales")) / pl.col("m1_sales"))
+      .otherwise(0)
+      .alias("pct_1m_minus_leb"),
+
+    pl.when(pl.col("m2_sales") > 0)
+      .then((pl.col("m2_sales") - pl.col("m1_sales")) / pl.col("m2_sales"))
+      .otherwise(0)
+      .alias("pct_2m_minus_1m"),
+
+    pl.when(pl.col("m3_sales") > 0)
+      .then((pl.col("m3_sales") - pl.col("m2_sales")) / pl.col("m3_sales"))
+      .otherwise(0)
+      .alias("pct_3m_minus_2m"),
+
+]).with_columns([
+
+    # -----------------------
+    # Average of the 4 percentages
+    # -----------------------
+    (
+        pl.col("pct_3m_minus_leb") +
+        pl.col("pct_1m_minus_leb") +
+        pl.col("pct_2m_minus_1m") +
+        pl.col("pct_3m_minus_2m")
+    ) / 4
+    .alias("avg_pct_change")
+
+])
+
+print("Lebaran Metrics Shape:")
+print(lebaran_metrics_df.shape)
+
+lebaran_metrics_df.head()
 
 -----------------------------------------------------------------------
 

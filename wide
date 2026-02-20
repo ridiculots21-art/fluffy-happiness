@@ -1201,3 +1201,38 @@ diff_df.head()
 
 ---------------------------------------------------------------------------------------------------------------------------
 
+from datetime import date
+from dateutil.relativedelta import relativedelta
+import polars as pl
+
+lebaran_cfg = {
+    2023: 4,
+    2024: 4,
+    2025: 3
+}
+
+rows = []
+
+for year, month in lebaran_cfg.items():
+    L = date(year, month, 1)
+    L_1 = L - relativedelta(months=1)
+    L_2 = L - relativedelta(months=2)
+    L_3 = L - relativedelta(months=3)
+
+    rows.append({
+        "L_year": L.year,
+        "L_month": L.month,
+
+        "L_1_year": L_1.year,
+        "L_1_month": L_1.month,
+
+        "L_2_year": L_2.year,
+        "L_2_month": L_2.month,
+
+        "L_3_year": L_3.year,
+        "L_3_month": L_3.month,
+    })
+
+lebaran_df = pl.DataFrame(rows)
+
+lebaran_df

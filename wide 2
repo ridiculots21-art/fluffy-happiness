@@ -478,7 +478,18 @@ plt.xlabel("Year")
 plt.ylabel("Mean Ratio")
 plt.show()
 -----------------------------------------------------------------------
+year_check = 2023
 
+year_df = lebaran_metrics_df.filter(
+    pl.col("lebaran_year") == year_check
+)
+
+year_df.shape
+
+---
+year_df.sort("pct 3m - leb", descending=True).head(10) # most positive
+
+year_df.sort("pct 3m - leb").head(10) # most negative
 
 
 -----------------------------------------------------------------------

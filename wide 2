@@ -339,7 +339,25 @@ lebaran_metrics_df = (
 lebaran_metrics_df.columns
 
 -----------------------------------------------------------------------
+lebaran_metrics_df.select([
+    pl.col("pct 3m - leb").describe(),
+    pl.col("pct 1m - leb").describe(),
+    pl.col("pct 2m - 1m").describe(),
+    pl.col("pct 3m - 2m").describe(),
+])
 
+
+import matplotlib.pyplot as plt
+
+# Convert to pandas for plotting
+plot_df = lebaran_metrics_df.to_pandas()
+
+plt.figure()
+plt.hist(plot_df["pct 3m - leb"], bins=50)
+plt.title("Distribution of pct 3m - leb (Raw)")
+plt.xlabel("pct 3m - leb")
+plt.ylabel("Frequency")
+plt.show()
 
 
 -----------------------------------------------------------------------

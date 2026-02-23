@@ -400,7 +400,17 @@ plt.show()
 
 -----------------------------------------------------------------------
 
+lebaran_metrics_df.sort("pct 3m - leb").select([
+    "key",
+    "lebaran_year",
+    "m3_sales",
+    "lebaran_sales",
+    "pct 3m - leb"
+]).head(10)
 
+lebaran_metrics_df.select(
+    (pl.col("lebaran_sales") / pl.col("m3_sales")).max().alias("max_leb_over_m3")
+)
 
 -----------------------------------------------------------------------
 

@@ -359,7 +359,11 @@ plt.xlabel("pct 3m - leb")
 plt.ylabel("Frequency")
 plt.show()
 
-
+lebaran_metrics_df.select([
+    pl.col("pct 3m - leb").min(),
+    pl.col("pct 3m - leb").max(),
+    pl.col("pct 3m - leb").mean(),
+])
 -----------------------------------------------------------------------
 
 

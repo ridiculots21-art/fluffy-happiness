@@ -412,6 +412,11 @@ lebaran_metrics_df.select(
     (pl.col("lebaran_sales") / pl.col("m3_sales")).max().alias("max_leb_over_m3")
 )
 
+lebaran_base_df.select([
+    pl.col("m3_sales").is_null().sum().alias("m3_null_count"),
+    (pl.col("m3_sales") == 0).sum().alias("m3_zero_count"),
+])
+
 -----------------------------------------------------------------------
 
 

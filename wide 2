@@ -366,6 +366,64 @@ lebaran_metrics_df.select([
 ])
 -----------------------------------------------------------------------
 
+# ============================================
+# STABILITY FILTER — REMOVE SMALL DENOMINATORS
+# ============================================
+
+min_threshold = 10
+
+lebaran_metrics_stable_df = lebaran_metrics_df.filter(
+    (pl.col("m3_sales") > min_threshold) &
+    (pl.col("m2_sales") > min_threshold) &
+    (pl.col("m1_sales") > min_threshold)
+)
+
+print("Before filter:", lebaran_metrics_df.shape)
+print("After filter :", lebaran_metrics_stable_df.shape)
+
+
+lebaran_metrics_stable_df.select([
+    pl.col("pct 3m - leb").min().alias("min"),
+    pl.col("pct 3m - leb").max().alias("max"),
+    pl.col("pct 3m - leb").mean().alias("mean"),
+])
+
+
+import matplotlib.pyplot as plt
+
+plot_df = lebaran_metrics_stable_df.to_pandas()
+
+plt.figure()
+plt.hist(plot_df["pct 3m - leb"], bins=50)
+plt.title("Distribution of pct 3m - leb (Stable Only)")
+plt.show()
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------
+
 
 
 -----------------------------------------------------------------------

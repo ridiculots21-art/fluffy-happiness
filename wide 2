@@ -519,8 +519,29 @@ plt.show()
 
 -----------------------------------------------------------------------
 
+lebaran_metric_stable_df = (
+    lebaran_metrics_df
+    .filter(
+        (pl.col("m3_sales") > 0) &
+        (pl.col("m2_sales") > 0) &
+        (pl.col("m1_sales") > 0)
+    )
+)
 
 
+lebaran_metric_stable_df.select([
+    (pl.col("m3_sales") == 0).sum().alias("m3_zero"),
+    (pl.col("m2_sales") == 0).sum().alias("m2_zero"),
+    (pl.col("m1_sales") == 0).sum().alias("m1_zero"),
+])
+
+
+lebaran_metric_stable_df.select([
+    pl.col("pct 3m - leb").min().alias("min_3m_leb"),
+    pl.col("pct 3m - leb").max().alias("max_3m_leb"),
+    pl.col("pct 1m - leb").min().alias("min_1m_leb"),
+    pl.col("pct 1m - leb").max().alias("max_1m_leb"),
+])
 -----------------------------------------------------------------------
 
 

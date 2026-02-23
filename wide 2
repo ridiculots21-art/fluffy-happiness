@@ -544,7 +544,78 @@ lebaran_metric_stable_df.select([
 ])
 -----------------------------------------------------------------------
 
+year_check = 2023
 
+year_df = lebaran_metric_stable_df.filter(
+    pl.col("lebaran_year") == year_check
+)
+
+----------
+
+extreme_neg = (
+    year_df
+    .sort("pct 3m - leb")
+    .head(1)
+)
+
+-----------
+
+extreme_pos = (
+    year_df
+    .sort("pct 3m - leb", descending=True)
+    .head(1)
+)
+
+---------
+
+neg_key = extreme_neg.select("key_combination").item()
+pos_key = extreme_pos.select("key_combination").item()
+
+---------
+
+neg_sales = year_df.filter(pl.col("key_combination") == neg_key)
+pos_sales = year_df.filter(pl.col("key_combination") == pos_key)
+
+----------
+
+neg_pd = neg_sales.to_pandas()
+pos_pd = pos_sales.to_pandas()
+
+----------
+
+import matplotlib.pyplot as plt
+
+plt.figure()
+plt.plot(
+    ["M3", "M2", "M1", "Leb"],
+    [
+        neg_pd["m3_sales"].values[0],
+        neg_pd["m2_sales"].values[0],
+        neg_pd["m1_sales"].values[0],
+        neg_pd["lebaran_sales"].values[0],
+    ]
+)
+plt.title(f"Extreme Negative Case - {year_check}")
+plt.ylabel("Sales")
+plt.show()
+
+----------
+
+import matplotlib.pyplot as plt
+
+plt.figure()
+plt.plot(
+    ["M3", "M2", "M1", "Leb"],
+    [
+        neg_pd["m3_sales"].values[0],
+        neg_pd["m2_sales"].values[0],
+        neg_pd["m1_sales"].values[0],
+        neg_pd["lebaran_sales"].values[0],
+    ]
+)
+plt.title(f"Extreme Negative Case - {year_check}")
+plt.ylabel("Sales")
+plt.show()
 
 -----------------------------------------------------------------------
 

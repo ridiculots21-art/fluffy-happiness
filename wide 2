@@ -494,7 +494,28 @@ year_df.sort("pct 3m - leb").head(10) # most negative
 
 -----------------------------------------------------------------------
 
+year_check = 2023
 
+year_df = (
+    lebaran_metrics_df
+    .filter(pl.col("lebaran_year") == year_check)
+    .filter(pl.col("pct 3m - leb").is_finite())
+)
+
+pd_df = year_df.to_pandas()
+
+plt.figure()
+plt.scatter(pd_df["m3_sales"], pd_df["pct 3m - leb"])
+plt.xlabel("M3 Sales (Denominator)")
+plt.ylabel("Pct 3M - Leb")
+plt.title("Ratio vs Denominator (2023)")
+plt.show()
+
+
+plt.figure()
+plt.hist(pd_df["pct 3m - leb"].clip(-10, 10), bins=100)
+plt.title("Clipped Ratio Distribution (2023)")
+plt.show()
 
 -----------------------------------------------------------------------
 

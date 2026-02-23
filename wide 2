@@ -419,8 +419,64 @@ lebaran_base_df.select([
 
 -----------------------------------------------------------------------
 
+lebaran_plot_df = lebaran_metrics_df.filter(
+    pl.all_horizontal([
+        pl.col("pct 3m - leb").is_finite(),
+        pl.col("pct 1m - leb").is_finite(),
+        pl.col("pct 2m - 1m").is_finite(),
+        pl.col("pct 3m - 2m").is_finite(),
+    ])
+)
 
+-----
 
+yearly_ratio_df = (
+    lebaran_plot_df
+    .group_by("year")
+    .agg([
+        pl.col("pct 3m - leb").mean().alias("mean_3m_leb"),
+        pl.col("pct 1m - leb").mean().alias("mean_1m_leb"),
+        pl.col("pct 2m - 1m").mean().alias("mean_2m_1m"),
+        pl.col("pct 3m - 2m").mean().alias("mean_3m_2m"),
+    ])
+    .sort("year")
+)
+
+yearly_ratio_df
+
+----
+
+yearly_pd = yearly_ratio_df.to_pandas()
+
+----
+
+plt.figure()
+plt.plot(yearly_pd["year"], yearly_pd["mean_3m_leb"])
+plt.title("Mean pct 3M - Lebaran by Year")
+plt.xlabel("Year")
+plt.ylabel("Mean Ratio")
+plt.show()
+
+plt.figure()
+plt.plot(yearly_pd["year"], yearly_pd["mean_1m_leb"])
+plt.title("Mean pct 1M - Lebaran by Year")
+plt.xlabel("Year")
+plt.ylabel("Mean Ratio")
+plt.show()
+
+plt.figure()
+plt.plot(yearly_pd["year"], yearly_pd["mean_2m_1m"])
+plt.title("Mean pct 2M - 1M by Year")
+plt.xlabel("Year")
+plt.ylabel("Mean Ratio")
+plt.show()
+
+plt.figure()
+plt.plot(yearly_pd["year"], yearly_pd["mean_3m_2m"])
+plt.title("Mean pct 3M - 2M by Year")
+plt.xlabel("Year")
+plt.ylabel("Mean Ratio")
+plt.show()
 -----------------------------------------------------------------------
 
 

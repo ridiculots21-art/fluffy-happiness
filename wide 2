@@ -616,7 +616,112 @@ plt.ylabel("Sales")
 plt.show()
 -----------------------------------------------------------------------
 
+# CELL A — pareto subset and monthly average (per-month mean across pareto keys)
+import polars as pl
+import pandas as pd
 
+pareto_ratio = 0.8  # your chosen pareto
+
+# 1) get df_pareto (reuse your prepare_df_and_pareto function)
+_, df_pareto = prepare_df_and_pareto(so_fcst_df, pareto_ratio)
+
+# 2) make sure periods -> proper date (first-of-month)
+df_pareto = df_pareto.with_columns(
+    pl.col("periods").str.strptime(pl.Date, "%Y %m").alias("period_dt")
+)
+
+# 3) drop null/invalid so_nw_ct if any (safety)
+df_pareto = df_pareto.filter(pl.col("so_nw_ct").is_finite())
+
+# 4) compute average monthly sales across all pareto keys
+monthly_avg = (
+    df_pareto
+    .group_by("period_dt")
+    .agg(
+        pl.col("so_nw_ct").mean().alias("monthly_avg")   # average across keys for that month
+    )
+    .sort("period_dt")
+)
+
+# 5) convert to pandas for plotting convenience
+monthly_pd = monthly_avg.to_pandas()
+monthly_pd["period_dt"] = pd.to_datetime(monthly_pd["period_dt"])  # ensure pandas datetime dtype
+
+# quick peek
+monthly_pd.head()
+
+----------
+
+# CELL B — plot average monthly series and mark Lebaran dates
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+
+# ensure monthly_pd exists from previous cell
+# generate all months between min and max
+all_months = pd.date_range(
+  start=monthly_pd["period_dt"].min(),
+  end=monthly_pd["period_dt"].max(),
+  freq="MS"  # Month Start frequency
+)
+
+plt.figure(figsize=(20,5))
+sns.lineplot(data=monthly_pd, x="period_dt", y="monthly_avg", marker="o")
+plt.title("Average Monthly Sales (Pareto 80 keys)")
+plt.xlabel("Period")
+plt.ylabel("Average Sales (so_nw_ct)")
+
+# Force all months on x-axis
+plt.xticks(all_months, rotation=45)
+
+# Lebaran markers — use your lebaran mapping:
+lebaran_cfg = {2023:4, 2024:4, 2025:3}
+for year, month in lebaran_cfg.items():
+    lebaran_date = pd.Timestamp(f"{year}-{month:02d}-01")
+    plt.axvline(lebaran_date, linestyle="--", linewidth=1.0)
+    plt.text(
+      lebaran_date,
+      monthly_pd["monthly_avg"].max() * 1.02,
+      f"Lebaran {year}",
+      ha="center",
+      va="bottom",
+      fontsize=9
+    )
+
+plt.tight_layout()
+plt.show()
+
+-------
+
+# CELL C — top-10 keys by pct 3m - leb then per-key monthly avg (one line per key)
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+
+# get top 10 keys (make sure column name matches your alias)
+top10_keys = lebaran_metrics_df.sort("pct 3m - leb").head(10)["key"].to_list()
+
+# filter df_pareto for those keys and compute monthly average per key
+df_top_keys = df_pareto.filter(pl.col("key").is_in(top10_keys))
+
+per_key_monthly = (
+    df_top_keys
+    .group_by(["key", "period_dt"])
+    .agg(pl.col("so_nw_ct").mean().alias("monthly_avg"))
+    .sort(["key", "period_dt"])
+).to_pandas()
+
+per_key_monthly["period_dt"] = pd.to_datetime(per_key_monthly["period_dt"])
+
+plt.figure(figsize=(20,8))
+sns.lineplot(data=per_key_monthly, x="period_dt", y="monthly_avg", hue="key", marker="o")
+plt.title("Top-10 Keys (by pct 3m - leb) — Monthly Average Sales (Pareto 80 subset)")
+plt.xlabel("Period")
+plt.ylabel("Average Sales (so_nw_ct)")
+plt.xticks(all_months, rotation=45)
+plt.legend(title="key", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.tight_layout()
+plt.show()
 
 -----------------------------------------------------------------------
 

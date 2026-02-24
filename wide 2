@@ -910,6 +910,118 @@ plt.suptitle(f"Top {len(top_keys)} Keys by pct 3m - leb (Pareto subset)", fontsi
 plt.tight_layout(rect=[0, 0, 1, 0.96])
 plt.show()
 
+
+# === BIG PLOT PER KEY with yearly m3/m2/m1/leb averages ===
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import polars as pl
+
+top_n = 10
+ymax = 5000
+lebaran_cfg = {2023:4, 2024:4, 2025:3}
+
+# 1️⃣ Get top keys (most negative spike)
+top_keys = (
+    lebaran_metrics_df
+    .sort("pct 3m - leb")
+    .head(top_n)["key"]
+    .to_list()
+)
+
+# 2️⃣ Ensure period_dt exists
+if "period_dt" not in df_pareto.columns:
+    df_pareto = df_pareto.with_columns(
+        pl.col("periods").str.strptime(pl.Date, "%Y %m").alias("period_dt")
+    )
+
+# 3️⃣ Monthly average per key
+df_top = df_pareto.filter(pl.col("key").is_in(top_keys))
+
+monthly_pl = (
+    df_top
+    .group_by(["key", "period_dt"])
+    .agg(pl.col("so_nw_ct").mean().alias("monthly_avg"))
+    .sort(["key", "period_dt"])
+)
+
+monthly_pd = monthly_pl.to_pandas()
+monthly_pd["period_dt"] = pd.to_datetime(monthly_pd["period_dt"])
+
+# Full month index
+all_months = pd.date_range(
+    start=monthly_pd["period_dt"].min(),
+    end=monthly_pd["period_dt"].max(),
+    freq="MS"
+)
+
+# 4️⃣ Loop per key and plot individually
+for key in top_keys:
+
+    key_data = monthly_pd[monthly_pd["key"] == key]
+    key_series = key_data.set_index("period_dt").reindex(all_months)
+
+    plt.figure(figsize=(20,7))
+    plt.plot(all_months, key_series["monthly_avg"], marker="o")
+    plt.title(f"Key: {key} — Monthly Average Sales (Pareto 80)")
+    plt.xlabel("Period")
+    plt.ylabel("Average Sales")
+    plt.xticks(all_months, rotation=45)
+    plt.ylim(None, ymax)
+    plt.grid(True)
+
+    # Lebaran vertical lines
+    for year, month in lebaran_cfg.items():
+        leb_date = pd.Timestamp(f"{year}-{month:02d}-01")
+        plt.axvline(leb_date, linestyle="--", linewidth=1.2)
+        plt.text(
+            leb_date,
+            ymax * 0.95,
+            f"Leb {year}",
+            rotation=90,
+            ha="center",
+            va="top"
+        )
+
+    # 5️⃣ Yearly m3/m2/m1/leb averages
+    yearly_avg = (
+        lebaran_metrics_df
+        .filter(pl.col("key") == key)
+        .group_by("year")
+        .agg([
+            pl.col("m3_sales").mean().alias("m3"),
+            pl.col("m2_sales").mean().alias("m2"),
+            pl.col("m1_sales").mean().alias("m1"),
+            pl.col("lebaran_sales").mean().alias("leb")
+        ])
+        .sort("year")
+        .to_pandas()
+    )
+
+    # Format text block
+    text_block = ""
+    for _, row in yearly_avg.iterrows():
+        text_block += (
+            f"{int(row['year'])} | "
+            f"m3: {row['m3']:.0f}, "
+            f"m2: {row['m2']:.0f}, "
+            f"m1: {row['m1']:.0f}, "
+            f"leb: {row['leb']:.0f}\n"
+        )
+
+    plt.gca().text(
+        0.01, 0.97,
+        text_block,
+        transform=plt.gca().transAxes,
+        fontsize=10,
+        verticalalignment="top",
+        bbox=dict(boxstyle="round", facecolor="white", alpha=0.85)
+    )
+
+    plt.tight_layout()
+    plt.show()
+
+
 -----------------------------------------------------------------------
 
 

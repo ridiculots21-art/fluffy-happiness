@@ -723,6 +723,68 @@ plt.legend(title="key", bbox_to_anchor=(1.05, 1), loc="upper left")
 plt.tight_layout()
 plt.show()
 
+
+# CELL C — top-10 keys split into separate subplots
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Get top 10 keys (most negative spike)
+top10_keys = (
+    lebaran_metrics_df
+    .sort("pct 3m - leb")  # most negative first
+    .head(10)["key"]
+    .to_list()
+)
+
+# Filter for those keys
+df_top_keys = df_pareto.filter(pl.col("key").is_in(top10_keys))
+
+# Compute monthly average per key
+per_key_monthly = (
+    df_top_keys
+    .group_by(["key", "period_dt"])
+    .agg(pl.col("so_nw_ct").mean().alias("monthly_avg"))
+    .sort(["key", "period_dt"])
+).to_pandas()
+
+per_key_monthly["period_dt"] = pd.to_datetime(per_key_monthly["period_dt"])
+
+# Generate full month index
+all_months = pd.date_range(
+    start=per_key_monthly["period_dt"].min(),
+    end=per_key_monthly["period_dt"].max(),
+    freq="MS"
+)
+
+# Create subplots (one per key)
+fig, axes = plt.subplots(len(top10_keys), 1, figsize=(18, 3*len(top10_keys)), sharex=True)
+
+if len(top10_keys) == 1:
+    axes = [axes]  # safety if only 1 key
+
+for ax, key in zip(axes, top10_keys):
+
+    key_data = per_key_monthly[per_key_monthly["key"] == key]
+
+    ax.plot(key_data["period_dt"], key_data["monthly_avg"], marker="o")
+    ax.set_title(f"Key: {key}")
+    ax.set_ylabel("Avg Sales")
+
+    # Lebaran markers
+    lebaran_cfg = {2023:4, 2024:4, 2025:3}
+    for year, month in lebaran_cfg.items():
+        lebaran_date = pd.Timestamp(f"{year}-{month:02d}-01")
+        ax.axvline(lebaran_date, linestyle="--", linewidth=1)
+
+    ax.grid(True)
+
+axes[-1].set_xticks(all_months)
+axes[-1].set_xticklabels(all_months.strftime("%Y-%m"), rotation=45)
+
+plt.tight_layout()
+plt.show()
+
 -----------------------------------------------------------------------
 
 

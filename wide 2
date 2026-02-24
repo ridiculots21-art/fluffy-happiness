@@ -1124,7 +1124,20 @@ for key in top_keys:
 
 -----------------------------------------------------------------------
 
+selected_key_df = (
+    lebaran_metrics_df
+    .filter(pl.col("key") == selected_key)   # 👈 filter first
+    .group_by("lebaran_year")
+    .agg([
+        pl.col("pct 3m - leb").mean().alias("pct 3m - leb"),
+        pl.col("pct 1m - leb").mean().alias("pct 1m - leb"),
+        pl.col("pct 2m - 1m").mean().alias("pct 2m - 1m"),
+        pl.col("pct 3m - 2m").mean().alias("pct 3m - 2m")
+    ])
+    .sort("lebaran_year")
+)
 
+selected_key_df
 
 -----------------------------------------------------------------------
 

@@ -207,11 +207,118 @@ summary, diag.select(["periods","label","ma3","festive_avg","adjusted_forecast",
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+# CELL A: per-key and per-zone lebaran averages
+import polars as pl
 
+# per-key averages across the years present in lebaran_base_df
+per_key_lebaran_avg = (
+    lebaran_base_df
+    .group_by("key")
+    .agg([
+        pl.col("m3_sales").mean().alias("m3_avg_key"),
+        pl.col("m2_sales").mean().alias("m2_avg_key"),
+        pl.col("m1_sales").mean().alias("m1_avg_key"),
+        pl.col("lebaran_sales").mean().alias("leb_avg_key"),
+        pl.count().alias("n_years_key")
+    ])
+)
+
+# create zone field for zone-level aggregation
+per_key_lebaran_avg = per_key_lebaran_avg.with_columns(
+    pl.col("key").str.split_exact("_", 1).list.get(0).alias("zone")
+)
+
+# per-zone averages (averaging the per-key averages, so each key contributes equally)
+per_zone_lebaran_avg = (
+    per_key_lebaran_avg
+    .group_by("zone")
+    .agg([
+        pl.col("m3_avg_key").mean().alias("m3_avg_zone"),
+        pl.col("m2_avg_key").mean().alias("m2_avg_zone"),
+        pl.col("m1_avg_key").mean().alias("m1_avg_zone"),
+        pl.col("leb_avg_key").mean().alias("leb_avg_zone"),
+        pl.col("n_years_key").sum().alias("n_years_zone_total")
+    ])
+)
+
+print("Per-key lebaran avg sample:")
+display(per_key_lebaran_avg.head(6).to_pandas())
+
+print("\nPer-zone lebaran avg sample:")
+display(per_zone_lebaran_avg.head(6).to_pandas())
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+# CELL B: join festive averages to forecast rows (per-key primary, per-zone fallback)
+start_period = "2025 01"
+end_period   = "2025 06"
 
+# Filter MA forecasts for horizon
+forecast_ma_df = (
+    train_df
+    .select(["key", "periods", "ma3", "so_nw_ct"])
+    .filter((pl.col("periods") >= start_period) & (pl.col("periods") <= end_period))
+    .sort(["key","periods"])
+)
+
+# Build lebaran label mapping for the years present in lebaran_cfg (to mark which periods are 3m/2m/1m/leb)
+# If you already have lebaran_period_map, reuse it; otherwise build quickly here using lebaran_cfg
+rows=[]
+for ly, lm in lebaran_cfg.items():
+    from datetime import datetime
+    from dateutil.relativedelta import relativedelta
+    leb = datetime(ly, lm, 1)
+    m1 = (leb - relativedelta(months=1))
+    m2 = (leb - relativedelta(months=2))
+    m3 = (leb - relativedelta(months=3))
+    rows += [
+        {"lebaran_year": ly, "label":"leb", "periods": f"{leb.year} {leb.month:02d}"},
+        {"lebaran_year": ly, "label":"1m", "periods": f"{m1.year} {m1.month:02d}"},
+        {"lebaran_year": ly, "label":"2m", "periods": f"{m2.year} {m2.month:02d}"},
+        {"lebaran_year": ly, "label":"3m", "periods": f"{m3.year} {m3.month:02d}"}
+    ]
+lebaran_period_map = pl.DataFrame(rows)
+
+# annotate label/lebaran_year to forecast rows
+forecast_annot = forecast_ma_df.join(lebaran_period_map, on="periods", how="left")
+
+# join per-key averages
+merged = forecast_annot.join(per_key_lebaran_avg, on="key", how="left")
+
+# extract zone for zone-level join/fallback
+merged = merged.with_columns(pl.col("key").str.split_exact("_",1).list.get(0).alias("zone"))
+
+# join per-zone averages
+merged = merged.join(per_zone_lebaran_avg, on="zone", how="left")
+
+# pick the correct festive avg based on label; prefer key-level, fallback to zone-level
+merged = merged.with_columns(
+    pl.when(pl.col("label") == "3m").then(
+        pl.coalesce([pl.col("m3_avg_key"), pl.col("m3_avg_zone")])
+    ).when(pl.col("label") == "2m").then(
+        pl.coalesce([pl.col("m2_avg_key"), pl.col("m2_avg_zone")])
+    ).when(pl.col("label") == "1m").then(
+        pl.coalesce([pl.col("m1_avg_key"), pl.col("m1_avg_zone")])
+    ).when(pl.col("label") == "leb").then(
+        pl.coalesce([pl.col("leb_avg_key"), pl.col("leb_avg_zone")])
+    ).otherwise(None).alias("festive_avg")
+).with_columns(
+    # mark source for debugging
+    pl.when(pl.col("label").is_null()).then("none")
+      .when(pl.col("m3_avg_key").is_not_null() & (pl.col("label")=="3m")).then("key")
+      .when(pl.col("m2_avg_key").is_not_null() & (pl.col("label")=="2m")).then("key")
+      .when(pl.col("m1_avg_key").is_not_null() & (pl.col("label")=="1m")).then("key")
+      .when(pl.col("leb_avg_key").is_not_null() & (pl.col("label")=="leb")).then("key")
+      .when(pl.col("m3_avg_zone").is_not_null() & (pl.col("label")=="3m")).then("zone")
+      .when(pl.col("m2_avg_zone").is_not_null() & (pl.col("label")=="2m")).then("zone")
+      .when(pl.col("m1_avg_zone").is_not_null() & (pl.col("label")=="1m")).then("zone")
+      .when(pl.col("leb_avg_zone").is_not_null() & (pl.col("label")=="leb")).then("zone")
+      .otherwise("none")
+      .alias("festive_source")
+)
+
+print("Merged forecast sample:")
+display(merged.select(["key","periods","label","lebaran_year","festive_source","festive_avg","ma3","so_nw_ct"]).head(12).to_pandas())
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 

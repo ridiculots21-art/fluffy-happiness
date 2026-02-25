@@ -478,13 +478,85 @@ forecast_final.filter(
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+# Cell 10: Compute MAPE for MA and Festive Adjusted
+
+eval_df = (
+    forecast_final
+    .filter(pl.col("ma3").is_not_nan())  # drop invalid MA rows
+    .with_columns([
+        # Absolute error MA
+        (pl.col("ma3") - pl.col("so_nw_ct")).abs().alias("ae_ma"),
+        # Absolute error Festive
+        (pl.col("final_forecast") - pl.col("so_nw_ct")).abs().alias("ae_festive"),
+    ])
+    .with_columns([
+        # MAPE MA
+        pl.when(pl.col("so_nw_ct") > 0)
+        .then(pl.col("ae_ma") / pl.col("so_nw_ct"))
+        .otherwise(None)
+        .alias("mape_ma"),
+
+        # MAPE Festive
+        pl.when(pl.col("so_nw_ct") > 0)
+        .then(pl.col("ae_festive") / pl.col("so_nw_ct"))
+        .otherwise(None)
+        .alias("mape_festive")
+    ])
+)
+
+# Average per key
+eval_key_df = (
+    eval_df
+    .group_by("key")
+    .agg([
+        pl.col("mape_ma").mean().alias("mape_ma_avg"),
+        pl.col("mape_festive").mean().alias("mape_festive_avg")
+    ])
+)
+
+eval_key_df.head()
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+# Cell 11: Add Pareto flag
+
+eval_key_df = eval_key_df.with_columns(
+    pl.when(pl.col("key").is_in(pareto_df["key"]))
+    .then(1)
+    .otherwise(0)
+    .alias("pareto80_flag")
+)
+
+eval_key_df.group_by("pareto80_flag").agg([
+    pl.col("mape_ma_avg").mean().alias("ma_avg"),
+    pl.col("mape_festive_avg").mean().alias("festive_avg")
+])
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+import matplotlib.pyplot as plt
+import pandas as pd
 
+# Aggregate for plotting
+plot_df = (
+    eval_key_df
+    .group_by("pareto80_flag")
+    .agg([
+        pl.col("mape_ma_avg").mean().alias("MA3"),
+        pl.col("mape_festive_avg").mean().alias("Festive_Adjusted")
+    ])
+    .sort("pareto80_flag")
+    .to_pandas()
+)
+
+# Plot
+plot_df.set_index("pareto80_flag").plot(kind="bar", figsize=(8,5))
+
+plt.title("MA3 vs Festive Adjusted MAPE\nPareto vs Non-Pareto")
+plt.ylabel("Average MAPE")
+plt.xticks([0,1], ["Non Pareto", "Pareto"], rotation=0)
+plt.legend()
+plt.show()
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 

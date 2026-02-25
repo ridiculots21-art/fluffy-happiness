@@ -168,7 +168,22 @@ festive_ratio_long.head(10)
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+# Cell 7: attach festive ratio to forecast rows (by key + label)
 
+forecast_with_ratio = (
+    forecast_with_label
+    .join(
+        festive_ratio_long,
+        on=["key", "label"],
+        how="left"   # important: keep all forecast rows
+    )
+    .sort(["key", "periods"])
+)
+
+print(forecast_with_ratio.shape)
+forecast_with_ratio.head(10)
+
+forecast_with_ratio.filter(pl.col("key") == "some_key_here")
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 

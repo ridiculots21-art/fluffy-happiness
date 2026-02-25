@@ -317,7 +317,43 @@ comparison
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+# Cell 11: Line plot comparison for one key
 
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# 🔹 Change this to any key you want to inspect
+selected_key = forecast_final["key"].unique()[0]
+
+plot_df = (
+    forecast_final
+    .filter(pl.col("key") == selected_key)
+    .select([
+        "periods",
+        "ma3",
+        "final_forecast",
+        "so_nw_ct"
+    ])
+    .with_columns(
+        pl.col("periods").str.strptime(pl.Date, "%Y %m").alias("period_dt")
+    )
+    .sort("period_dt")
+    .to_pandas()
+)
+
+plt.figure(figsize=(10,5))
+
+plt.plot(plot_df["period_dt"], plot_df["so_nw_ct"], marker="o", label="Actual")
+plt.plot(plot_df["period_dt"], plot_df["ma3"], marker="o", label="MA3 Forecast")
+plt.plot(plot_df["period_dt"], plot_df["final_forecast"], marker="o", linestyle="--", label="Festive Adjusted Forecast")
+
+plt.title(f"Forecast Comparison — Key: {selected_key}")
+plt.xlabel("Period")
+plt.ylabel("Sales")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 

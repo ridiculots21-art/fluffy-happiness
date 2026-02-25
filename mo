@@ -407,13 +407,7 @@ forecast_final.filter(
     pl.col("label").unique()
 )
 
-
-# Plot ONLY forecast horizon
-
-import matplotlib.pyplot as plt
-import pandas as pd
-
-forecast_only = (
+(
     forecast_final
     .filter(
         (pl.col("periods") >= "2025 01") &
@@ -421,31 +415,22 @@ forecast_only = (
     )
     .group_by("periods")
     .agg([
-        pl.col("so_nw_ct").sum().alias("actual_total"),
-        pl.col("ma3").sum().alias("ma_total"),
-        pl.col("final_forecast").sum().alias("final_total"),
+        (pl.col("final_forecast").sum() - pl.col("ma3").sum()).alias("diff")
     ])
-    .with_columns(
-        pl.col("periods").str.strptime(pl.Date, "%Y %m").alias("period_dt")
-    )
-    .sort("period_dt")
-    .to_pandas()
 )
 
-plt.figure(figsize=(10,5))
 
-plt.plot(forecast_only["period_dt"], forecast_only["actual_total"], marker="o", label="Actual Total")
-plt.plot(forecast_only["period_dt"], forecast_only["ma_total"], marker="o", label="MA3 Total")
-plt.plot(forecast_only["period_dt"], forecast_only["final_total"], marker="o", linestyle="--", label="Festive Adjusted Total")
-
-plt.title("Forecast Horizon Only (2025 Jan–Jun)")
-plt.xlabel("Period")
-plt.ylabel("Total Sales")
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.show()
-
+(
+    forecast_final
+    .filter(
+        (pl.col("periods") >= "2025 01") &
+        (pl.col("periods") <= "2025 06")
+    )
+    .group_by("periods")
+    .agg([
+        (pl.col("final_forecast").sum() - pl.col("ma3").sum()).alias("diff")
+    ])
+)
 -------------------------------------------------------------------------------------------------------------------------------------------
 
 

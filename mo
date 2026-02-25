@@ -431,6 +431,17 @@ forecast_final.filter(
         (pl.col("final_forecast").sum() - pl.col("ma3").sum()).alias("diff")
     ])
 )
+
+forecast_final.select(
+    pl.col("final_forecast").null_count()
+)
+
+forecast_final.filter(
+    (pl.col("periods") >= "2025 01") &
+    (pl.col("periods") <= "2025 03")
+).select(
+    pl.col("ma3").null_count()
+)
 -------------------------------------------------------------------------------------------------------------------------------------------
 
 

@@ -442,8 +442,34 @@ forecast_final.filter(
 ).select(
     pl.col("ma3").null_count()
 )
--------------------------------------------------------------------------------------------------------------------------------------------
 
+
+(
+    forecast_final
+    .filter(
+        (pl.col("periods") >= "2025 01") &
+        (pl.col("periods") <= "2025 06")
+    )
+    .group_by("periods")
+    .agg([
+        pl.col("so_nw_ct").sum().alias("actual_sum"),
+        pl.col("ma3").sum().alias("ma_sum"),
+        pl.col("final_forecast").sum().alias("final_sum"),
+        pl.count().alias("row_count")
+    ])
+    .sort("periods")
+)
+
+forecast_final.filter(
+    pl.col("periods") == "2025 01"
+).select([
+    pl.col("so_nw_ct").sum(),
+    pl.col("so_nw_ct").null_count(),
+    pl.col("ma3").sum(),
+    pl.col("final_forecast").sum()
+])
+
+-------------------------------------------------------------------------------------------------------------------------------------------
 
 
 -------------------------------------------------------------------------------------------------------------------------------------------

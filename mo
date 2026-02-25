@@ -469,6 +469,13 @@ forecast_final.filter(
     pl.col("final_forecast").sum()
 ])
 
+forecast_final.filter(
+    pl.col("periods") == "2025 01"
+).select([
+    pl.col("final_forecast").is_nan().sum().alias("nan_count"),
+    pl.col("final_forecast").null_count().alias("null_count")
+])
+
 -------------------------------------------------------------------------------------------------------------------------------------------
 
 

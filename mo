@@ -224,7 +224,29 @@ forecast_adjusted.select([
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+# Cell 9: build final averaged forecast
 
+forecast_final = (
+    forecast_adjusted
+    .with_columns(
+        (
+            (pl.col("ma3") + pl.col("festive_adjusted_forecast")) / 2
+        ).alias("final_forecast")
+    )
+    .sort(["key", "periods"])
+)
+
+print(forecast_final.shape)
+
+forecast_final.select([
+    "key",
+    "periods",
+    "label",
+    "ma3",
+    "festive_adjusted_forecast",
+    "final_forecast",
+    "so_nw_ct"
+]).head(12)
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 

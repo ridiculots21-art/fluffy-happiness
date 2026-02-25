@@ -276,7 +276,44 @@ forecast_final.select([
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+# Cell 10: Evaluate MA3 vs Final Forecast (MAPE comparison)
 
+evaluation_df = (
+    forecast_final
+    # Absolute Errors
+    .with_columns([
+        (pl.col("ma3") - pl.col("so_nw_ct")).abs().alias("ae_ma"),
+        (pl.col("final_forecast") - pl.col("so_nw_ct")).abs().alias("ae_final")
+    ])
+    # MAPE
+    .with_columns([
+        pl.when(pl.col("so_nw_ct") > 0)
+          .then(pl.col("ae_ma") / pl.col("so_nw_ct"))
+          .otherwise(1)
+          .alias("mape_ma"),
+
+        pl.when(pl.col("so_nw_ct") > 0)
+          .then(pl.col("ae_final") / pl.col("so_nw_ct"))
+          .otherwise(1)
+          .alias("mape_final")
+    ])
+    # Cap at 1 (100%)
+    .with_columns([
+        pl.when(pl.col("mape_ma") > 1).then(1).otherwise(pl.col("mape_ma")).alias("mape_ma"),
+        pl.when(pl.col("mape_final") > 1).then(1).otherwise(pl.col("mape_final")).alias("mape_final"),
+    ])
+)
+
+# Aggregate comparison
+comparison = (
+    evaluation_df
+    .select([
+        pl.col("mape_ma").mean().round(4).alias("avg_mape_ma"),
+        pl.col("mape_final").mean().round(4).alias("avg_mape_final")
+    ])
+)
+
+comparison
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 

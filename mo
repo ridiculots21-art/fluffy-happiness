@@ -89,6 +89,21 @@ festive_clean = (
 
 festive_clean
 
+# CELL 5: attach per-key festive averages to forecast rows
+
+forecast_enriched = (
+    forecast_with_label
+    .join(
+        per_key_lebaran_avg,
+        on="key",
+        how="left"
+    )
+    .filter(pl.col("n_years_key").is_not_null())
+)
+
+print("Forecast enriched sample:")
+display(forecast_enriched.head(10).to_pandas())
+
 -------------------------------------------------------------------------------------------------------------------------------------------
 
 -------------------------------------------------------------------------------------------------------------------------------------------

@@ -355,6 +355,43 @@ plt.grid(True)
 plt.tight_layout()
 plt.show()
 
+
+
+# Cell 11: Aggregate all keys and plot overall performance
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Aggregate by period
+agg_plot_df = (
+    forecast_final
+    .group_by("periods")
+    .agg([
+        pl.col("so_nw_ct").sum().alias("actual_total"),
+        pl.col("ma3").sum().alias("ma_total"),
+        pl.col("final_forecast").sum().alias("final_total"),
+    ])
+    .with_columns(
+        pl.col("periods").str.strptime(pl.Date, "%Y %m").alias("period_dt")
+    )
+    .sort("period_dt")
+    .to_pandas()
+)
+
+plt.figure(figsize=(10,5))
+
+plt.plot(agg_plot_df["period_dt"], agg_plot_df["actual_total"], marker="o", label="Actual Total")
+plt.plot(agg_plot_df["period_dt"], agg_plot_df["ma_total"], marker="o", label="MA3 Total")
+plt.plot(agg_plot_df["period_dt"], agg_plot_df["final_total"], marker="o", linestyle="--", label="Festive Adjusted Total")
+
+plt.title("Overall Forecast Comparison (All Keys Combined)")
+plt.xlabel("Period")
+plt.ylabel("Total Sales")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
 -------------------------------------------------------------------------------------------------------------------------------------------
 
 

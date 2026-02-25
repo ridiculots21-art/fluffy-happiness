@@ -75,21 +75,32 @@ per_key_lebaran_avg = (
 print("Per-key lebaran avg sample:")
 display(per_key_lebaran_avg.head(6).to_pandas())
 
-# Cell 4: build festive averages per key per label
+# Cell 4: festive averages per key with separate columns
 
 festive_avg_df = (
     df_pareto
     .join(
         lebaran_period_map,
         on="periods",
-        how="inner"   # keep only periods that belong to festive mapping
+        how="inner"
     )
     .group_by(["key", "label"])
     .agg(
-        pl.col("so_nw_ct").mean().alias("festive_avg"),
-        pl.count().alias("years_used")
+        pl.col("so_nw_ct").mean().alias("festive_avg")
     )
-    .sort(["key", "label"])
+    .pivot(
+        index="key",
+        on="label",
+        values="festive_avg",
+        aggregate_function="first"
+    )
+    .rename({
+        "3m": "festive_avg_m3",
+        "2m": "festive_avg_m2",
+        "1m": "festive_avg_m1",
+        "leb": "festive_avg_leb"
+    })
+    .sort("key")
 )
 
 print(festive_avg_df.shape)

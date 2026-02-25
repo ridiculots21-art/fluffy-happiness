@@ -207,10 +207,8 @@ summary, diag.select(["periods","label","ma3","festive_avg","adjusted_forecast",
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
-# CELL A: per-key and per-zone lebaran averages
-import polars as pl
-
-# per-key averages across the years present in lebaran_base_df
+# CELL 4: build per-key festive averages from lebaran_base_df
+# (lebaran_base_df was assembled previously in your lebaran section)
 per_key_lebaran_avg = (
     lebaran_base_df
     .group_by("key")
@@ -223,102 +221,187 @@ per_key_lebaran_avg = (
     ])
 )
 
-# create zone field for zone-level aggregation
-per_key_lebaran_avg = per_key_lebaran_avg.with_columns(
-    pl.col("key").str.split_exact("_", 1).list.get(0).alias("zone")
-)
-
-# per-zone averages (averaging the per-key averages, so each key contributes equally)
-per_zone_lebaran_avg = (
-    per_key_lebaran_avg
-    .group_by("zone")
-    .agg([
-        pl.col("m3_avg_key").mean().alias("m3_avg_zone"),
-        pl.col("m2_avg_key").mean().alias("m2_avg_zone"),
-        pl.col("m1_avg_key").mean().alias("m1_avg_zone"),
-        pl.col("leb_avg_key").mean().alias("leb_avg_zone"),
-        pl.col("n_years_key").sum().alias("n_years_zone_total")
-    ])
-)
-
 print("Per-key lebaran avg sample:")
 display(per_key_lebaran_avg.head(6).to_pandas())
 
-print("\nPer-zone lebaran avg sample:")
-display(per_zone_lebaran_avg.head(6).to_pandas())
-
 -------------------------------------------------------------------------------------------------------------------------------------------
 
-# CELL B: join festive averages to forecast rows (per-key primary, per-zone fallback)
-start_period = "2025 01"
-end_period   = "2025 06"
+# CELL 5: join per-key festive averages onto forecast rows
+merged = forecast_with_label.join(per_key_lebaran_avg, on="key", how="left")
 
-# Filter MA forecasts for horizon
-forecast_ma_df = (
-    train_df
-    .select(["key", "periods", "ma3", "so_nw_ct"])
-    .filter((pl.col("periods") >= start_period) & (pl.col("periods") <= end_period))
-    .sort(["key","periods"])
-)
-
-# Build lebaran label mapping for the years present in lebaran_cfg (to mark which periods are 3m/2m/1m/leb)
-# If you already have lebaran_period_map, reuse it; otherwise build quickly here using lebaran_cfg
-rows=[]
-for ly, lm in lebaran_cfg.items():
-    from datetime import datetime
-    from dateutil.relativedelta import relativedelta
-    leb = datetime(ly, lm, 1)
-    m1 = (leb - relativedelta(months=1))
-    m2 = (leb - relativedelta(months=2))
-    m3 = (leb - relativedelta(months=3))
-    rows += [
-        {"lebaran_year": ly, "label":"leb", "periods": f"{leb.year} {leb.month:02d}"},
-        {"lebaran_year": ly, "label":"1m", "periods": f"{m1.year} {m1.month:02d}"},
-        {"lebaran_year": ly, "label":"2m", "periods": f"{m2.year} {m2.month:02d}"},
-        {"lebaran_year": ly, "label":"3m", "periods": f"{m3.year} {m3.month:02d}"}
-    ]
-lebaran_period_map = pl.DataFrame(rows)
-
-# annotate label/lebaran_year to forecast rows
-forecast_annot = forecast_ma_df.join(lebaran_period_map, on="periods", how="left")
-
-# join per-key averages
-merged = forecast_annot.join(per_key_lebaran_avg, on="key", how="left")
-
-# extract zone for zone-level join/fallback
-merged = merged.with_columns(pl.col("key").str.split_exact("_",1).list.get(0).alias("zone"))
-
-# join per-zone averages
-merged = merged.join(per_zone_lebaran_avg, on="zone", how="left")
-
-# pick the correct festive avg based on label; prefer key-level, fallback to zone-level
+# pick the correct festive avg for each label
 merged = merged.with_columns(
-    pl.when(pl.col("label") == "3m").then(
-        pl.coalesce([pl.col("m3_avg_key"), pl.col("m3_avg_zone")])
-    ).when(pl.col("label") == "2m").then(
-        pl.coalesce([pl.col("m2_avg_key"), pl.col("m2_avg_zone")])
-    ).when(pl.col("label") == "1m").then(
-        pl.coalesce([pl.col("m1_avg_key"), pl.col("m1_avg_zone")])
-    ).when(pl.col("label") == "leb").then(
-        pl.coalesce([pl.col("leb_avg_key"), pl.col("leb_avg_zone")])
-    ).otherwise(None).alias("festive_avg")
-).with_columns(
-    # mark source for debugging
-    pl.when(pl.col("label").is_null()).then("none")
-      .when(pl.col("m3_avg_key").is_not_null() & (pl.col("label")=="3m")).then("key")
-      .when(pl.col("m2_avg_key").is_not_null() & (pl.col("label")=="2m")).then("key")
-      .when(pl.col("m1_avg_key").is_not_null() & (pl.col("label")=="1m")).then("key")
-      .when(pl.col("leb_avg_key").is_not_null() & (pl.col("label")=="leb")).then("key")
-      .when(pl.col("m3_avg_zone").is_not_null() & (pl.col("label")=="3m")).then("zone")
-      .when(pl.col("m2_avg_zone").is_not_null() & (pl.col("label")=="2m")).then("zone")
-      .when(pl.col("m1_avg_zone").is_not_null() & (pl.col("label")=="1m")).then("zone")
-      .when(pl.col("leb_avg_zone").is_not_null() & (pl.col("label")=="leb")).then("zone")
-      .otherwise("none")
-      .alias("festive_source")
+    pl.when(pl.col("label") == "3m").then(pl.col("m3_avg_key"))
+      .when(pl.col("label") == "2m").then(pl.col("m2_avg_key"))
+      .when(pl.col("label") == "1m").then(pl.col("m1_avg_key"))
+      .when(pl.col("label") == "leb").then(pl.col("leb_avg_key"))
+      .otherwise(None)
+      .alias("festive_avg")
 )
 
-print("Merged forecast sample:")
-display(merged.select(["key","periods","label","lebaran_year","festive_source","festive_avg","ma3","so_nw_ct"]).head(12).to_pandas())
+# quick inspect
+display(merged.select(["key","periods","label","lebaran_year","n_years_key","festive_avg","ma3","so_nw_ct"]).head(12).to_pandas())  
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+# CELL 6: compute adjusted forecast (ma3 + festive_avg) / 2 when festive exists
+WEIGHT_MA = 0.5
+WEIGHT_FESTIVE = 0.5
+
+final_forecast = merged.with_columns(
+    adjusted_forecast = pl.when(pl.col("festive_avg").is_not_null() & pl.col("ma3").is_not_null())
+        .then(pl.col("ma3") * WEIGHT_MA + pl.col("festive_avg") * WEIGHT_FESTIVE)
+        .when(pl.col("ma3").is_not_null()).then(pl.col("ma3"))
+        .otherwise(pl.col("festive_avg"))
+)
+
+# Inspect few rows (including ones that were flagged for lebaran months)
+display(final_forecast.select(["key","periods","label","lebaran_year","n_years_key","festive_avg","ma3","adjusted_forecast","so_nw_ct"]).head(20).to_pandas())
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+# CELL 7: compute errors and per-key mape averages for 2025-01 .. 2025-06
+eval_df = final_forecast.with_columns([
+    # MA errors
+    (pl.col("ma3") - pl.col("so_nw_ct")).alias("re_ma"),
+    (pl.col("ma3") - pl.col("so_nw_ct")).abs().alias("ae_ma"),
+    # Adjusted errors
+    (pl.col("adjusted_forecast") - pl.col("so_nw_ct")).alias("re_adj"),
+    (pl.col("adjusted_forecast") - pl.col("so_nw_ct")).abs().alias("ae_adj"),
+]).with_columns([
+    # row-level mape, cap at 1
+    pl.when(pl.col("so_nw_ct") > 0).then(pl.col("ae_ma") / pl.col("so_nw_ct")).otherwise(1).alias("mape_ma_raw"),
+    pl.when(pl.col("so_nw_ct") > 0).then(pl.col("ae_adj") / pl.col("so_nw_ct")).otherwise(1).alias("mape_adj_raw")
+]).with_columns([
+    pl.when(pl.col("mape_ma_raw") > 1).then(1).otherwise(pl.col("mape_ma_raw")).alias("mape_ma"),
+    pl.when(pl.col("mape_adj_raw") > 1).then(1).otherwise(pl.col("mape_adj_raw")).alias("mape_adj"),
+])
+
+# Keep only 2025 H1 rows
+horizon_periods = ["2025 01","2025 02","2025 03","2025 04","2025 05","2025 06"]
+eval_2025 = eval_df.filter(pl.col("periods").is_in(horizon_periods))
+
+# Pivot MAPE per key (months -> columns), then compute horizontal average (per key)
+mape_ma_pivot = eval_2025.pivot(on="periods", index="key", values="mape_ma", aggregate_function="sum", sort_columns=True)
+mape_adj_pivot = eval_2025.pivot(on="periods", index="key", values="mape_adj", aggregate_function="sum", sort_columns=True)
+
+# compute per-key averages across months (ignores missing months automatically)
+mape_ma_pivot = mape_ma_pivot.with_columns(mape_ma_pivot.drop("key").mean_horizontal().alias("mape_avg_ma"))
+mape_adj_pivot = mape_adj_pivot.with_columns(mape_adj_pivot.drop("key").mean_horizontal().alias("mape_avg_adj"))
+
+# bring both together
+mape_compare = mape_ma_pivot.select(["key","mape_avg_ma"]).join(
+    mape_adj_pivot.select(["key","mape_avg_adj"]), on="key", how="outer"
+).with_columns(
+    pl.col("mape_avg_ma").fill_null(1.0),
+    pl.col("mape_avg_adj").fill_null(1.0)
+)
+
+# attach pareto flag and zone (use perform_df which you already computed earlier)
+if "pareto80_flag" in perform_df.columns:
+    mape_compare = mape_compare.join(perform_df.select(["key","pareto80_flag"]), on="key", how="left").with_columns(
+        pl.col("pareto80_flag").fill_null(0).cast(pl.Int8)
+    )
+else:
+    mape_compare = mape_compare.with_columns(pl.lit(0).alias("pareto80_flag"))
+
+# add zone
+mape_compare = mape_compare.with_columns(pl.col("key").str.split_exact("_",1).list.get(0).alias("zone"))
+
+print("Sample mape compare (per key):")
+display(mape_compare.head(10).to_pandas())
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+# CELL 8: global aggregated actual vs adjusted plot
+plot_df = (
+    final_forecast
+    .group_by("periods")
+    .agg([
+        pl.col("adjusted_forecast").sum().alias("forecast_sum"),
+        pl.col("ma3").sum().alias("ma_sum"),
+        pl.col("so_nw_ct").sum().alias("actual_sum")
+    ])
+    .sort("periods")
+).to_pandas()
+
+plot_df["period_dt"] = pd.to_datetime(plot_df["periods"].str.replace(" ", "-") + "-01", format="%Y-%m-%d")
+
+plt.figure(figsize=(10,5))
+plt.plot(plot_df["period_dt"], plot_df["actual_sum"], marker="o", label="Actual (sum)")
+plt.plot(plot_df["period_dt"], plot_df["ma_sum"], marker="o", label="MA3 (sum)")
+plt.plot(plot_df["period_dt"], plot_df["forecast_sum"], marker="o", label="Adjusted (sum)")
+plt.xticks(plot_df["period_dt"], plot_df["periods"], rotation=45)
+plt.title("Total Actual vs MA3 vs Adjusted Forecast (2025 H1)")
+plt.ylabel("Quantity (nw_ct)")
+plt.legend()
+plt.grid(axis="y", alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+# CELL 9: per-zone aggregated comparison (pareto vs non-pareto) for MA and Adjusted
+zone_summary = (
+    mape_compare
+    .group_by(["zone","pareto80_flag"])
+    .agg([
+        pl.col("mape_avg_ma").mean().alias("mape_ma_zone"),
+        pl.col("mape_avg_adj").mean().alias("mape_adj_zone"),
+        pl.count().alias("combination_count")
+    ])
+    .sort("zone")
+)
+
+zone_pd = zone_summary.to_pandas()
+
+# Create pivot tables for plotting
+pivot_ma = zone_pd.pivot(index="zone", columns="pareto80_flag", values="mape_ma_zone").fillna(0)
+pivot_adj = zone_pd.pivot(index="zone", columns="pareto80_flag", values="mape_adj_zone").fillna(0)
+
+# Ensure both flag columns present
+for df in (pivot_ma, pivot_adj):
+    if 0 not in df.columns: df[0] = 0
+    if 1 not in df.columns: df[1] = 0
+    # order columns: non-pareto (0) then pareto (1)
+    df = df[[0,1]]
+
+# Plot side-by-side subplots for direct comparison
+fig, axes = plt.subplots(1,2, figsize=(16,5), sharey=True)
+pivot_ma.sort_index().plot(kind="bar", ax=axes[0])
+axes[0].set_title("Per-Zone Avg MAPE — MA3 (non-pareto=0 vs pareto=1)")
+axes[0].set_ylabel("MAPE (proportion)")
+axes[0].set_xlabel("Zone")
+axes[0].legend(title="pareto80_flag", loc="upper right")
+
+pivot_adj.sort_index().plot(kind="bar", ax=axes[1])
+axes[1].set_title("Per-Zone Avg MAPE — Adjusted Forecast (non-pareto=0 vs pareto=1)")
+axes[1].set_xlabel("Zone")
+axes[1].legend(title="pareto80_flag", loc="upper right")
+
+plt.tight_layout()
+plt.show()
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+# CELL 10: diagnostics
+diag = final_forecast.with_columns(
+    adjusted_flag = pl.when(pl.col("label").is_not_null() & pl.col("festive_avg").is_not_null()).then(1).otherwise(0),
+    diff = (pl.col("adjusted_forecast") - pl.col("ma3"))
+)
+
+n_rows = diag.height
+n_adjusted_rows = diag.filter(pl.col("adjusted_flag") == 1).height
+total_adj = float(diag.select(pl.col("diff").sum()).to_numpy()[0][0]) if n_rows>0 else 0.0
+avg_diff = float(diag.filter(pl.col("adjusted_flag")==1).select(pl.col("diff").mean()).to_numpy()[0][0]) if n_adjusted_rows>0 else 0.0
+
+print(f"Total rows in horizon: {n_rows}")
+print(f"Rows adjusted by festive avg: {n_adjusted_rows}")
+print(f"Sum of adjustments (adjusted - ma3): {total_adj:.2f}")
+print(f"Average adjustment among adjusted rows: {avg_diff:.2f}")
+
+# sample adjusted rows
+display(diag.select(["key","periods","label","n_years_key","festive_avg","ma3","adjusted_forecast","diff"]).filter(pl.col("adjusted_flag")==1).head(12).to_pandas())
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -327,17 +410,13 @@ display(merged.select(["key","periods","label","lebaran_year","festive_source","
 -------------------------------------------------------------------------------------------------------------------------------------------
 
 
+                            
+-------------------------------------------------------------------------------------------------------------------------------------------       
 
+
+                            
 -------------------------------------------------------------------------------------------------------------------------------------------
 
 
 
--------------------------------------------------------------------------------------------------------------------------------------------
-
-
-
--------------------------------------------------------------------------------------------------------------------------------------------
-
-
-
--------------------------------------------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------------------------------------------                            

@@ -108,32 +108,38 @@ festive_avg_df.head(10)
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
-# Cell 5 — Clean festive data preparation (NO combining)
+# Cell 5: convert festive averages into ratios
 
-festive_clean = (
-    festive_raw
-    .filter(pl.col("n_years_key").is_not_null())  # remove NaN years
+# compute historical mean sales per key
+key_mean_df = (
+    df_pareto
+    .group_by("key")
+    .agg(
+        pl.col("so_nw_ct").mean().alias("key_mean")
+    )
+)
+
+# join mean and convert to ratios
+festive_ratio_df = (
+    festive_avg_df
+    .join(key_mean_df, on="key", how="left")
     .with_columns([
-        pl.col("lebaran_year").cast(pl.Int64)     # remove decimal .0
+        (pl.col("festive_avg_m3") / pl.col("key_mean")).alias("ratio_m3"),
+        (pl.col("festive_avg_m2") / pl.col("key_mean")).alias("ratio_m2"),
+        (pl.col("festive_avg_m1") / pl.col("key_mean")).alias("ratio_m1"),
+        (pl.col("festive_avg_leb") / pl.col("key_mean")).alias("ratio_leb"),
+    ])
+    .select([
+        "key",
+        "ratio_m3",
+        "ratio_m2",
+        "ratio_m1",
+        "ratio_leb"
     ])
 )
 
-festive_clean
-
-# CELL 5: attach per-key festive averages to forecast rows
-
-forecast_enriched = (
-    forecast_with_label
-    .join(
-        per_key_lebaran_avg,
-        on="key",
-        how="left"
-    )
-    .filter(pl.col("n_years_key").is_not_null())
-)
-
-print("Forecast enriched sample:")
-display(forecast_enriched.head(10).to_pandas())
+print(festive_ratio_df.shape)
+festive_ratio_df.head(10)
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 

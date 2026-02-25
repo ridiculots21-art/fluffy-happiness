@@ -143,6 +143,28 @@ festive_ratio_df.head(10)
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+# Cell 6: attach festive ratios to forecast rows
+
+forecast_with_ratio = (
+    forecast_with_label
+    .join(
+        festive_ratio_df,
+        on="key",
+        how="left"
+    )
+    .with_columns(
+        pl.when(pl.col("label") == "3m").then(pl.col("ratio_m3"))
+        .when(pl.col("label") == "2m").then(pl.col("ratio_m2"))
+        .when(pl.col("label") == "1m").then(pl.col("ratio_m1"))
+        .when(pl.col("label") == "leb").then(pl.col("ratio_leb"))
+        .otherwise(None)
+        .alias("festive_ratio")
+    )
+)
+
+print(forecast_with_ratio.shape)
+forecast_with_ratio.head(10)
+
 -------------------------------------------------------------------------------------------------------------------------------------------
 
 

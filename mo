@@ -143,27 +143,93 @@ festive_ratio_df.head(10)
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
-# Cell 6: attach festive ratios to forecast rows
+# Cell 6: combine MA forecast with per-key festive averages and plot sample key
+# assumes: forecast_with_label, festive_avg_df, pl, pd, plt are already defined (from cells 1-5)
 
-forecast_with_ratio = (
+# 1) make festive_avg long (key, label, festive_avg) with labels matching lebaran_period_map ('3m','2m','1m','leb')
+festive_long = (
+    festive_avg_df
+    .select([
+        "key",
+        "festive_avg_m3",
+        "festive_avg_m2",
+        "festive_avg_m1",
+        "festive_avg_leb"
+    ])
+    # create columns with exact label names so melt produces '3m','2m','1m','leb'
+    .with_columns([
+        pl.col("festive_avg_m3").alias("3m"),
+        pl.col("festive_avg_m2").alias("2m"),
+        pl.col("festive_avg_m1").alias("1m"),
+        pl.col("festive_avg_leb").alias("leb"),
+    ])
+    .select(["key", "3m", "2m", "1m", "leb"])
+    .melt(id_vars="key", variable_name="label", value_name="festive_avg")
+    .filter(~pl.col("festive_avg").is_null())  # keep only available festive averages
+)
+
+print("festive_long sample:")
+display(festive_long.head(6).to_pandas())
+
+
+# 2) join festival component onto forecast rows
+# forecast_with_label should have: key, periods, ma3, so_nw_ct, lebaran_year (nullable), label (nullable)
+forecast_with_festive = (
     forecast_with_label
-    .join(
-        festive_ratio_df,
-        on="key",
-        how="left"
-    )
+    .join(festive_long, on=["key", "label"], how="left")
+    # ensure periods parsed for plotting later
     .with_columns(
-        pl.when(pl.col("label") == "3m").then(pl.col("ratio_m3"))
-        .when(pl.col("label") == "2m").then(pl.col("ratio_m2"))
-        .when(pl.col("label") == "1m").then(pl.col("ratio_m1"))
-        .when(pl.col("label") == "leb").then(pl.col("ratio_leb"))
-        .otherwise(None)
-        .alias("festive_ratio")
+        pl.col("periods").str.strptime(pl.Date, "%Y %m").alias("period_dt")
     )
 )
 
-print(forecast_with_ratio.shape)
-forecast_with_ratio.head(10)
+print("forecast_with_festive sample:")
+display(forecast_with_festive.head(8).to_pandas())
+
+
+# 3) create combined forecast: simple average of ma3 and festive_avg when festive_avg exists,
+#    otherwise keep ma3 (you can change the combine rule later)
+results_df = (
+    forecast_with_festive
+    .with_columns(
+        combined_forecast = pl.when(pl.col("festive_avg").is_null())
+            .then(pl.col("ma3"))
+            .otherwise((pl.col("ma3") + pl.col("festive_avg")) / 2)
+    )
+    .select([
+        "key", "periods", "period_dt", "label", "lebaran_year",
+        "ma3", "festive_avg", "combined_forecast", "so_nw_ct"
+    ])
+    .sort(["key", "period_dt"])
+)
+
+print("results_df shape:", results_df.shape)
+display(results_df.head(12).to_pandas())
+
+
+# 4) quick plotting helper for a single key (change selected_key to any key you want to inspect)
+selected_key = results_df["key"].unique()[0] if len(results_df) > 0 else None
+print("selected_key (default):", selected_key)
+
+if selected_key is not None:
+    plot_df = results_df.filter(pl.col("key") == selected_key).to_pandas()
+    # convert period_dt to pandas datetime if needed
+    plot_df["period_dt"] = pd.to_datetime(plot_df["period_dt"])
+    plot_df = plot_df.sort_values("period_dt")
+    
+    plt.figure(figsize=(10,4))
+    plt.plot(plot_df["period_dt"], plot_df["so_nw_ct"], label="Actual so_nw_ct", marker="o")
+    plt.plot(plot_df["period_dt"], plot_df["ma3"], label="MA3 forecast", marker="o")
+    plt.plot(plot_df["period_dt"], plot_df["combined_forecast"], label="MA3 + FestiveAvg (mean)", marker="o", linestyle="--")
+    plt.title(f"Key: {selected_key} — Actual vs MA3 vs Combined")
+    plt.xlabel("Period")
+    plt.ylabel("so_nw_ct / forecast")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("No keys found in results_df to plot.")
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 

@@ -250,7 +250,29 @@ forecast_final.select([
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+# Cell 9: final smoothed seasonal forecast
 
+forecast_final = (
+    forecast_adjusted
+    .with_columns(
+        (
+            pl.col("ma3") * ((1 + pl.col("effective_ratio")) / 2)
+        ).alias("final_forecast")
+    )
+    .sort(["key", "periods"])
+)
+
+print(forecast_final.shape)
+
+forecast_final.select([
+    "key",
+    "periods",
+    "label",
+    "ma3",
+    "effective_ratio",
+    "final_forecast",
+    "so_nw_ct"
+]).head(12)
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 

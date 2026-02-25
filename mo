@@ -187,7 +187,40 @@ forecast_with_ratio.filter(pl.col("key") == "some_key_here")
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+# Cell 8: clean festive ratio and apply to MA forecast
 
+forecast_adjusted = (
+    forecast_with_ratio
+    # Step 1: convert zero ratios to null
+    .with_columns(
+        pl.when(pl.col("festive_ratio") == 0)
+          .then(None)
+          .otherwise(pl.col("festive_ratio"))
+          .alias("festive_ratio_clean")
+    )
+    # Step 2: create effective ratio (default = 1 when null)
+    .with_columns(
+        pl.when(pl.col("festive_ratio_clean").is_null())
+          .then(1)
+          .otherwise(pl.col("festive_ratio_clean"))
+          .alias("effective_ratio")
+    )
+    # Step 3: apply ratio to MA forecast
+    .with_columns(
+        (pl.col("ma3") * pl.col("effective_ratio"))
+        .alias("festive_adjusted_forecast")
+    )
+    .sort(["key", "periods"])
+)
+
+print(forecast_adjusted.shape)
+forecast_adjusted.select([
+    "key", "periods", "label",
+    "ma3", "festive_ratio", 
+    "effective_ratio",
+    "festive_adjusted_forecast",
+    "so_nw_ct"
+]).head(12)
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 

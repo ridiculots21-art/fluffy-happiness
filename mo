@@ -1320,13 +1320,13 @@ pareto_eval_key_df.group_by("pareto80_flag").agg(
 
 
 # Adjusted Pareto evaluation:
-# Use MA3 normally, but replace rows labeled "leb" with final_forecast
+# Use MA3 normally, but replace rows where label contains "leb" with final_forecast
 
 adjusted_eval_df = (
     forecast_final
     .filter(pl.col("ma3").is_not_nan())
     .with_columns([
-        pl.when(pl.col("leb") == 1)
+        pl.when(pl.col("label").str.contains("leb"))
         .then(pl.col("final_forecast"))
         .otherwise(pl.col("ma3"))
         .alias("adjusted_forecast")

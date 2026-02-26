@@ -641,6 +641,17 @@ festive_ratio_long = festive_ratio_long.with_columns(
 festive_ratio_long = festive_ratio_long.sort(["key","label"])
 
 festive_ratio_long.head()
+
+
+
+
+festive_ratio_long = festive_ratio_long.with_columns(
+    festive_ratio = (pl.col("avg_value") / pl.col("leb_value"))
+                     .fill_nan(1.0)      # replace NaN
+                     .fill_null(1.0)     # replace missing
+                     .clip_max(1e6)      # prevent Inf
+                     .round(3)
+).select(["key","label","festive_ratio"]).sort(["key","label"])
 -------------------------------------------------------------------------------------------------------------------------------------------
 
 

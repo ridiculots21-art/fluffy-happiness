@@ -1641,3 +1641,58 @@ comparison_group.select([
     .max()
     .alias("max_difference_per_key")
 ])            
+
+
+
+
+
+
+
+festive_eval_df = (
+    forecast_final
+    .filter(pl.col("final_forecast").is_not_nan())
+    .with_columns([
+        (pl.col("final_forecast") - pl.col("so_nw_ct")).abs().alias("ae_festive")
+    ])
+    .with_columns([
+        pl.when(pl.col("so_nw_ct") > 0)
+        .then(pl.col("ae_festive") / pl.col("so_nw_ct"))
+        .otherwise(None)
+        .alias("mape_festive")
+    ])
+)
+
+festive_eval_key_df = (
+    festive_eval_df
+    .group_by("key")
+    .agg(pl.col("mape_festive").mean().alias("mape_festive_avg"))
+)
+
+
+
+
+adjusted_eval_df = (
+    forecast_final
+    .with_columns([
+        pl.when(pl.col("label") == "leb")
+        .then(pl.col("final_forecast"))
+        .otherwise(pl.col("ma3"))
+        .alias("adjusted_forecast")
+    ])
+    .filter(pl.col("adjusted_forecast").is_not_nan())
+    .with_columns([
+        (pl.col("adjusted_forecast") - pl.col("so_nw_ct")).abs().alias("ae_adjusted")
+    ])
+    .with_columns([
+        pl.when(pl.col("so_nw_ct") > 0)
+        .then(pl.col("ae_adjusted") / pl.col("so_nw_ct"))
+        .otherwise(None)
+        .alias("mape_adjusted")
+    ])
+)
+
+adjusted_eval_key_df = (
+    adjusted_eval_df
+    .group_by("key")
+    .agg(pl.col("mape_adjusted").mean().alias("mape_adjusted_avg"))
+)            

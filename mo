@@ -863,3 +863,37 @@ globals()["forecast_leban_final_df"] = forecast_with_label_local
 globals()["leb_eval_per_key"] = eval_key_leban
 
 print("Done — created `forecast_leban_final_df` (all rows with final_forecast) and `leb_eval_per_key` (Leb-only per-key MAPE).")
+
+
+
+
+-----------------------------------------------------------
+
+print("Keys in leb_eval:")
+print(leb_eval.select(pl.col("key").n_unique()))
+
+print("Keys in pareto_df:")
+print(pareto_df.select(pl.col("key").n_unique()))
+
+print("Overlap:")
+print(
+    leb_eval.select("key")
+    .unique()
+    .join(pareto_df.select("key").unique(), on="key", how="inner")
+    .height
+)
+
+
+-----------------------------------------------------------
+
+
+
+-----------------------------------------------------------            
+
+
+            
+-----------------------------------------------------------            
+
+
+
+-----------------------------------------------------------            

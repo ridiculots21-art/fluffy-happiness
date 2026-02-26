@@ -886,8 +886,74 @@ print(
 
 -----------------------------------------------------------
 
+            plot_df = (
+    forecast_final
+    .with_columns(period_dt = pl.col("periods").str.strptime(pl.Date, "%Y %m"))
+    .group_by("period_dt")
+    .agg([
+        pl.col("so_nw_ct").sum().alias("actual_total"),
+        pl.col("ma3").sum().alias("ma_total"),
+        pl.col("final_forecast").sum().alias("final_total")
+    ])
+    .sort("period_dt")
+    .to_pandas()
+)
+
+plt.figure(figsize=(10,5))
+plt.plot(plot_df["period_dt"], plot_df["actual_total"], marker="o", label="Actual")
+plt.plot(plot_df["period_dt"], plot_df["ma_total"], marker="o", label="MA3")
+plt.plot(plot_df["period_dt"], plot_df["final_total"], marker="o", linestyle="--", label="Festive Adjusted (Leb Only)")
+plt.legend()
+plt.title("Total Sales Comparison")
+plt.grid(alpha=0.3)
+plt.show()
 
 
+
+
+
+
+
+leb_only = forecast_final.filter(pl.col("label") == "leb")
+
+leb_only = leb_only.with_columns([
+    (pl.col("ma3") - pl.col("so_nw_ct")).abs().alias("ae_ma"),
+    (pl.col("final_forecast") - pl.col("so_nw_ct")).abs().alias("ae_final")
+]).with_columns([
+    (pl.col("ae_ma") / pl.col("so_nw_ct")).alias("mape_ma"),
+    (pl.col("ae_final") / pl.col("so_nw_ct")).alias("mape_final")
+])
+
+per_key = leb_only.group_by("key").agg([
+    pl.col("mape_ma").mean().alias("mape_ma_avg"),
+    pl.col("mape_final").mean().alias("mape_final_avg")
+])
+
+per_key = per_key.with_columns(
+    pareto_flag = pl.when(pl.col("key").is_in(pareto_df["key"]))
+                    .then("Pareto")
+                    .otherwise("Non Pareto")
+)
+
+plot_df = (
+    per_key
+    .group_by("pareto_flag")
+    .agg([
+        pl.col("mape_ma_avg").mean().alias("MA3"),
+        pl.col("mape_final_avg").mean().alias("Festive_Adjusted")
+    ])
+    .to_pandas()
+    .set_index("pareto_flag")
+)
+
+plot_df.plot(kind="bar", figsize=(6,4))
+plt.title("Leb Month MAPE: Pareto vs Non-Pareto")
+plt.ylabel("Average MAPE")
+plt.xticks(rotation=0)
+plt.grid(axis="y", alpha=0.3)
+plt.show()
+
+            
 -----------------------------------------------------------            
 
 

@@ -1237,4 +1237,54 @@ plt.tight_layout()
 plt.show()
 
 # (Optional) export eval_key_df if you want to inspect per-key changes
-# eval_key_df.write_csv("eval_key_pareto_mixed_vs_ma3.csv")            
+# eval_key_df.write_csv("eval_key_pareto_mixed_vs_ma3.csv")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Pareto-specific evaluation: use final_forecast (MA3 except Lebaran already replaced)
+
+pareto_eval_df = (
+    forecast_final
+    .filter(pl.col("final_forecast").is_not_nan())
+    .with_columns([
+        (pl.col("final_forecast") - pl.col("so_nw_ct")).abs().alias("ae_pareto")
+    ])
+    .with_columns([
+        pl.when(pl.col("so_nw_ct") > 0)
+        .then(pl.col("ae_pareto") / pl.col("so_nw_ct"))
+        .otherwise(None)
+        .alias("mape_pareto")
+    ])
+)
+
+pareto_eval_key_df = (
+    pareto_eval_df
+    .group_by("key")
+    .agg(
+        pl.col("mape_pareto").mean().alias("mape_pareto_avg")
+    )
+)
+
+pareto_eval_key_df = pareto_eval_key_df.with_columns(
+    pl.when(pl.col("key").is_in(pareto_df["key"]))
+    .then(1)
+    .otherwise(0)
+    .alias("pareto80_flag")
+)
+
+pareto_eval_key_df.group_by("pareto80_flag").agg(
+    pl.col("mape_pareto_avg").mean().alias("pareto_mape_avg")
+)            

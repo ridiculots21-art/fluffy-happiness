@@ -580,6 +580,27 @@ forecast_with_ratio = forecast.join(
 )
 -------------------------------------------------------------------------------------------------------------------------------------------       
 
+# Keep only 2023 Jan–Apr
+festive_df = so_fcst_df.filter(
+    pl.col("periods").str.starts_with("2023")
+).with_columns(
+    month = pl.col("periods").str.split(" ").list.get(1).cast(pl.Int32)
+).filter(pl.col("month").is_in([1,2,3,4]))
+
+# Compute monthly average per key
+festive_avg_df = festive_df.groupby(["key", "month"]).agg(
+    pl.col("so_nw_ct").mean().alias("avg_value")
+)
+
+# Compute ratio per key
+festive_ratio_df = festive_avg_df.groupby("key").agg(
+    (pl.col("avg_value") / pl.col("avg_value").sum()).alias("ratio")
+).explode("ratio")  # long format for easy merge
+
+# Label months (example: month 4 = Lebaran, else normal)
+festive_ratio_long = festive_avg_df.with_columns(
+    label = pl.when(pl.col("month") == 4).then("leb").otherwise("normal")
+)
 
                             
 -------------------------------------------------------------------------------------------------------------------------------------------

@@ -1287,4 +1287,77 @@ pareto_eval_key_df = pareto_eval_key_df.with_columns(
 
 pareto_eval_key_df.group_by("pareto80_flag").agg(
     pl.col("mape_pareto_avg").mean().alias("pareto_mape_avg")
-)            
+)           
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Adjusted Pareto evaluation:
+# Use MA3 normally, but for month 3 use final_forecast
+
+adjusted_eval_df = (
+    forecast_final
+    .filter(pl.col("ma3").is_not_nan())
+    .with_columns([
+        # Use final_forecast only for month 3, otherwise ma3
+        pl.when(pl.col("month") == 3)
+        .then(pl.col("final_forecast"))
+        .otherwise(pl.col("ma3"))
+        .alias("adjusted_forecast")
+    ])
+    .with_columns([
+        (pl.col("adjusted_forecast") - pl.col("so_nw_ct")).abs().alias("ae_adjusted")
+    ])
+    .with_columns([
+        pl.when(pl.col("so_nw_ct") > 0)
+        .then(pl.col("ae_adjusted") / pl.col("so_nw_ct"))
+        .otherwise(None)
+        .alias("mape_adjusted")
+    ])
+)
+
+adjusted_eval_key_df = (
+    adjusted_eval_df
+    .group_by("key")
+    .agg(
+        pl.col("mape_adjusted").mean().alias("mape_adjusted_avg")
+    )
+)
+
+adjusted_eval_key_df = adjusted_eval_key_df.with_columns(
+    pl.when(pl.col("key").is_in(pareto_df["key"]))
+    .then(1)
+    .otherwise(0)
+    .alias("pareto80_flag")
+)
+
+adjusted_eval_key_df.group_by("pareto80_flag").agg(
+    pl.col("mape_adjusted_avg").mean().alias("adjusted_mape_avg")
+)

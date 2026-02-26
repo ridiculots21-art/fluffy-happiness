@@ -654,6 +654,15 @@ festive_ratio_long = festive_ratio_long.with_columns(
 ).select(["key","label","festive_ratio"]).sort(["key","label"])
 -------------------------------------------------------------------------------------------------------------------------------------------
 
+normal_mean_df = (
+    df_pareto
+    .join(lebaran_period_map, on="periods", how="left")
+    .filter(pl.col("label").is_null())   # non festive months only
+    .group_by("key")
+    .agg(
+        pl.col("so_nw_ct").mean().alias("normal_mean")
+    )
+)
 
 
 -------------------------------------------------------------------------------------------------------------------------------------------                            

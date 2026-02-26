@@ -651,7 +651,20 @@ festive_ratio_long = (
 # keep nulls/zeros here — handling (e.g., convert 0 -> null) will be done at apply-time
 print("festive_ratio_long shape:", festive_ratio_long.shape)
 display(festive_ratio_long.head(10).to_pandas())
-                            
+
+
+
+
+# 2023 lebaran month = April
+leb_dt = datetime(2023, 4, 1)
+
+# periods for 3 months before lebaran + lebaran month itself
+p_m3 = "2023 01"  # 3 months before lebaran
+p_m2 = "2023 02"  # 2 months before
+p_m1 = "2023 03"  # 1 month before
+p_leb = "2023 04" # lebaran month
+
+periods_for_learning = [p_m3, p_m2, p_m1, p_leb]
 -------------------------------------------------------------------------------------------------------------------------------------------       
 
 

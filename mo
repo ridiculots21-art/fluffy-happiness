@@ -666,3 +666,200 @@ normal_mean_df = (
 
 
 -------------------------------------------------------------------------------------------------------------------------------------------                            
+# --- NEW CELL: Lebaran-only adjustment, plots, pareto bar (self-contained) ---
+import numpy as np, polars as pl, pandas as pd
+import matplotlib.pyplot as plt, seaborn as sns
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+
+# ---- 1) Prepare required sourceframes (try to reuse existing names) ----
+# forecast_ma_df should have key, periods, ma3, so_nw_ct
+if "forecast_ma_df" not in globals():
+    # try to build minimal forecast_ma_df from train_df if available
+    if "train_df" in globals():
+        forecast_ma_df = (
+            train_df.select(["key","periods","ma3","so_nw_ct"])
+                    .sort(["key","periods"])
+        )
+    else:
+        raise RuntimeError("forecast_ma_df not found and train_df not available to build it.")
+
+# lebaran_period_map expected (periods <-> label mapping)
+if "lebaran_period_map" not in globals():
+    raise RuntimeError("lebaran_period_map not found. Please create it (map of lebaran_year,label,periods).")
+
+# festive_ratio_long ideally exists (key,label,festive_ratio). If not, attempt to compute leb ratios only.
+if "festive_ratio_long" in globals():
+    fr_long = festive_ratio_long.select(["key","label","festive_ratio"])
+else:
+    # attempt to compute festive ratios minimal for leb using df_pareto or so_fcst_df + lebaran_period_map
+    src_df = None
+    if "df_pareto" in globals():
+        src_df = df_pareto
+    elif "so_fcst_df" in globals():
+        src_df = so_fcst_df
+    else:
+        raise RuntimeError("Neither festive_ratio_long nor df_pareto/so_fcst_df found to compute festive ratios.")
+
+    # compute festive averages per key+label using lebaran_period_map (restrict to label values present)
+    tmp = (
+        src_df.join(lebaran_period_map, on="periods", how="inner")  # only periods in map
+              .group_by(["key","label"])
+              .agg(pl.col("so_nw_ct").mean().alias("festive_avg"))
+    )
+
+    # compute a sensible 'normal' baseline per key (non-festive months within df used to compute normal mean)
+    normal_mean = (
+        src_df.join(lebaran_period_map, on="periods", how="left")
+              .filter(pl.col("label").is_null())   # non-festive periods
+              .group_by("key")
+              .agg(pl.col("so_nw_ct").mean().alias("normal_mean"))
+    )
+
+    # join and compute ratio = festive_avg / normal_mean
+    fr_long = (
+        tmp.join(normal_mean, on="key", how="left")
+           .with_columns(
+               pl.when((pl.col("normal_mean").is_null()) | (pl.col("normal_mean") == 0))
+                 .then(1.0)
+                 .otherwise(pl.col("festive_avg") / pl.col("normal_mean"))
+                 .alias("festive_ratio")
+           )
+           .select(["key","label","festive_ratio"])
+    )
+
+# Keep only the leb ratios (we only adjust leb months)
+leb_ratio_df = fr_long.filter(pl.col("label") == "leb").select(["key","festive_ratio"]).rename({"festive_ratio":"leb_ratio"})
+
+# Clean leb_ratio: replace non-finite or <=0 with 1.0
+leb_ratio_df = leb_ratio_df.with_columns(
+    leb_ratio = pl.when(~pl.col("leb_ratio").is_finite() | (pl.col("leb_ratio") <= 0))
+                 .then(1.0)
+                 .otherwise(pl.col("leb_ratio"))
+)
+
+# ---- 2) Annotate forecast rows with label (leb or not) ----
+forecast_with_label_local = (
+    forecast_ma_df.join(lebaran_period_map, on="periods", how="left")
+                   .with_columns(pl.col("label").fill_null("").alias("label"))  # empty string when not festive
+                   .sort(["key","periods"])
+)
+
+# join leb_ratio by key (leb_ratio will be null for keys that don't have leb_ratio)
+forecast_with_label_local = forecast_with_label_local.join(leb_ratio_df, on="key", how="left")
+
+# ---- 3) Build final forecast where ONLY leb periods are adjusted ----
+# effective leb_ratio: use leb_ratio only when label == 'leb', otherwise 1.0
+forecast_with_label_local = forecast_with_label_local.with_columns(
+    leb_ratio_effective = pl.when(pl.col("label") == "leb")
+                             .then(pl.col("leb_ratio"))
+                             .otherwise(1.0)
+)
+
+# ensure no non-finite values remain
+forecast_with_label_local = forecast_with_label_local.with_columns(
+    leb_ratio_effective = pl.when(~pl.col("leb_ratio_effective").is_finite() | (pl.col("leb_ratio_effective") <= 0))
+                             .then(1.0)
+                             .otherwise(pl.col("leb_ratio_effective"))
+)
+
+# festive_adjusted_forecast (simple multiply) and smoothed final_forecast for leb only
+forecast_with_label_local = forecast_with_label_local.with_columns([
+    (pl.col("ma3") * pl.col("leb_ratio_effective")).alias("festive_adjusted_forecast"),
+    # final smoothed forecast: if leb use smoothed formula else ma3 (we will create final_forecast accordingly)
+    pl.when(pl.col("label") == "leb")
+      .then(pl.col("ma3") * ((1 + pl.col("leb_ratio_effective")) / 2))
+      .otherwise(pl.col("ma3"))
+      .alias("final_forecast")
+])
+
+# ---- 4) Line chart (overall): Actual total, MA3 total, Final total where final uses adjusted only for leb months ----
+agg_plot_df = (
+    forecast_with_label_local
+    .with_columns(period_dt = pl.col("periods").str.strptime(pl.Date, "%Y %m"))
+    .group_by("period_dt")
+    .agg([
+        pl.col("so_nw_ct").sum().alias("actual_total"),
+        pl.col("ma3").sum().alias("ma_total"),
+        pl.col("final_forecast").sum().alias("final_total")
+    ])
+    .sort("period_dt")
+    .to_pandas()
+)
+
+plt.figure(figsize=(11,5))
+plt.plot(agg_plot_df["period_dt"], agg_plot_df["actual_total"], marker="o", label="Actual Total")
+plt.plot(agg_plot_df["period_dt"], agg_plot_df["ma_total"], marker="o", label="MA3 Total")
+plt.plot(agg_plot_df["period_dt"], agg_plot_df["final_total"], marker="o", linestyle="--", label="Festive-Adjusted (Leb only) Total")
+plt.title("Overall Forecast Comparison — Final uses adjustment only for Leb")
+plt.xlabel("Period")
+plt.ylabel("Total Sales")
+plt.legend()
+plt.grid(alpha=0.25)
+plt.tight_layout()
+plt.show()
+
+# ---- 5) Lebaran-only evaluation per key (MAPE) and Pareto bar chart ----
+# select only rows where label == 'leb' (these are the leb months we adjusted)
+leb_eval = forecast_with_label_local.filter(pl.col("label") == "leb")
+
+# Compute AE and MAPE for MA and Final
+leb_eval = leb_eval.with_columns([
+    (pl.col("ma3") - pl.col("so_nw_ct")).abs().alias("ae_ma"),
+    (pl.col("final_forecast") - pl.col("so_nw_ct")).abs().alias("ae_final")
+]).with_columns([
+    pl.when(pl.col("so_nw_ct") > 0).then(pl.col("ae_ma") / pl.col("so_nw_ct")).otherwise(None).alias("mape_ma"),
+    pl.when(pl.col("so_nw_ct") > 0).then(pl.col("ae_final") / pl.col("so_nw_ct")).otherwise(None).alias("mape_final")
+])
+
+# average per key (Leb only)
+eval_key_leban = (
+    leb_eval.group_by("key")
+            .agg([
+                pl.col("mape_ma").mean().alias("mape_ma_avg"),
+                pl.col("mape_final").mean().alias("mape_final_avg"),
+                pl.count().alias("n_leb_rows")
+            ])
+)
+
+# attach pareto flag using pareto_df if available (otherwise create a pareto flag False)
+if "pareto_df" in globals():
+    eval_key_leban = eval_key_leban.with_columns(
+        pareto80_flag = pl.when(pl.col("key").is_in(pareto_df["key"])).then(1).otherwise(0)
+    )
+else:
+    eval_key_leban = eval_key_leban.with_columns(pl.lit(0).alias("pareto80_flag"))
+
+# Replace null mape means with large number or NaN? We'll leave null as-is so plotting ignores keys with no leb data
+eval_key_leban = eval_key_leban.with_columns(
+    mape_ma_avg = pl.col("mape_ma_avg").fill_null(pl.lit(np.nan)),
+    mape_final_avg = pl.col("mape_final_avg").fill_null(pl.lit(np.nan))
+)
+
+# Aggregate for plotting (group by pareto flag)
+plot_df = (
+    eval_key_leban.group_by("pareto80_flag")
+                  .agg([
+                      pl.col("mape_ma_avg").mean().alias("MA3"),
+                      pl.col("mape_final_avg").mean().alias("Festive_Adjusted")
+                  ])
+                  .sort("pareto80_flag")
+                  .to_pandas()
+)
+
+# Bar plot: Leb-only Pareto vs Non-Pareto
+plot_df = plot_df.set_index("pareto80_flag").rename(index={0:"Non Pareto",1:"Pareto"})
+ax = plot_df.plot(kind="bar", figsize=(7,5))
+ax.set_ylabel("Average Leb MAPE")
+ax.set_title("Lebaran-only: MA3 vs Festive-Adjusted (averaged per key)\nPareto vs Non-Pareto")
+plt.xticks(rotation=0)
+plt.grid(axis="y", alpha=0.2)
+plt.tight_layout()
+plt.show()
+
+# ---- 6) Return useful frames to the notebook namespace ----
+# Keep results accessible for inspection
+globals()["forecast_leban_final_df"] = forecast_with_label_local
+globals()["leb_eval_per_key"] = eval_key_leban
+
+print("Done — created `forecast_leban_final_df` (all rows with final_forecast) and `leb_eval_per_key` (Leb-only per-key MAPE).")

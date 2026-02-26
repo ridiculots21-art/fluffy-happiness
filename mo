@@ -1696,3 +1696,43 @@ adjusted_eval_key_df = (
     .group_by("key")
     .agg(pl.col("mape_adjusted").mean().alias("mape_adjusted_avg"))
 )            
+
+
+
+
+
+
+leb_rows = (
+    forecast_final
+    .filter(
+        pl.col("label")
+        .str.to_lowercase()
+        .str.contains("leb")
+    )
+    .select([
+        "key",
+        "periods",
+        "label",
+        "ma3",
+        "effective_ratio",
+        "final_forecast",
+        "so_nw_ct"
+    ])
+    .sort(["key", "periods"])
+)
+
+print(leb_rows.shape)
+leb_rows.head(20)
+
+
+
+leb_rows = (
+    forecast_final
+    .filter(
+        pl.col("label")
+        .str.to_lowercase()
+        .str.contains("leb")
+    )
+)
+
+leb_rows            

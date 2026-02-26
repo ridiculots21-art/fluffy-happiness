@@ -1417,19 +1417,45 @@ adjusted_eval_key_df.group_by("pareto80_flag").agg(
 
 
 
-forecast_final.group_by("label").agg(
-    pl.count().alias("rows")
+adjusted_eval_df = (
+    forecast_final
+    .filter(
+        pl.when(pl.col("label") == "leb")
+        .then(pl.col("final_forecast").is_not_nan())
+        .otherwise(pl.col("ma3").is_not_nan())
+    )
+    .with_columns([
+        pl.when(pl.col("label") == "leb")
+        .then(pl.col("final_forecast"))
+        .otherwise(pl.col("ma3"))
+        .alias("adjusted_forecast")
+    ])
+    .with_columns([
+        (pl.col("adjusted_forecast") - pl.col("so_nw_ct")).abs().alias("ae_adjusted")
+    ])
+    .with_columns([
+        pl.when(pl.col("so_nw_ct") > 0)
+        .then(pl.col("ae_adjusted") / pl.col("so_nw_ct"))
+        .otherwise(None)
+        .alias("mape_adjusted")
+    ])
 )
 
+adjusted_eval_key_df = (
+    adjusted_eval_df
+    .group_by("key")
+    .agg(
+        pl.col("mape_adjusted").mean().alias("mape_adjusted_avg")
+    )
+)
 
-forecast_final.with_columns(
-    pl.col("label").str.contains("leb").alias("leb_match")
-).group_by("leb_match").agg(pl.count())
+adjusted_eval_key_df = adjusted_eval_key_df.with_columns(
+    pl.when(pl.col("key").is_in(pareto_df["key"]))
+    .then(1)
+    .otherwise(0)
+    .alias("pareto80_flag")
+)
 
-
-
-
-forecast_final.filter(pl.col("label") == "leb").select([
-    "ma3",
-    "final_forecast"
-])            
+adjusted_eval_key_df.group_by("pareto80_flag").agg(
+    pl.col("mape_adjusted_avg").mean().alias("adjusted_mape_avg")
+)

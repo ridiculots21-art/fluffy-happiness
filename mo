@@ -1151,3 +1151,90 @@ plt.tight_layout()
 plt.show()
 
 -----------------------------------------------------------            
+
+# --- New cell: Pareto graph using MA3 for all months except Lebaran (2025-03) -> use final_forecast ---
+# (Comment / remove later if you just want to keep this as an experiment)
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+
+# config
+LEBARAN_PERIOD = "2025 03"
+HORIZON_START = "2025 01"
+HORIZON_END   = "2025 06"
+
+# ensure forecast_final has needed columns
+_needed = {"key","periods","ma3","final_forecast","so_nw_ct"}
+_missing = _needed - set(forecast_final.columns)
+if _missing:
+    raise RuntimeError(f"Missing columns in forecast_final: {_missing}")
+
+# take only forecast horizon rows
+horizon_df = forecast_final.filter(
+    (pl.col("periods") >= HORIZON_START) & (pl.col("periods") <= HORIZON_END)
+).select(["key","periods","ma3","final_forecast","so_nw_ct"])
+
+# build the pareto-mixed forecast: use final_forecast only for Lebaran period, otherwise ma3
+horizon_df = horizon_df.with_columns(
+    pl.when(pl.col("periods") == LEBARAN_PERIOD)
+      .then(pl.col("final_forecast"))
+      .otherwise(pl.col("ma3"))
+      .alias("pareto_mixed_forecast")
+)
+
+# compute AE and MAPE (same logic as your code, cap at 1)
+eval_df = horizon_df.with_columns([
+    (pl.col("ma3") - pl.col("so_nw_ct")).abs().alias("ae_ma"),
+    (pl.col("pareto_mixed_forecast") - pl.col("so_nw_ct")).abs().alias("ae_pareto")
+]).with_columns([
+    pl.when(pl.col("so_nw_ct") > 0).then(pl.col("ae_ma") / pl.col("so_nw_ct")).otherwise(None).alias("mape_ma"),
+    pl.when(pl.col("so_nw_ct") > 0).then(pl.col("ae_pareto") / pl.col("so_nw_ct")).otherwise(None).alias("mape_pareto")
+]).with_columns([
+    pl.when(pl.col("mape_ma") > 1).then(1).otherwise(pl.col("mape_ma")).alias("mape_ma"),
+    pl.when(pl.col("mape_pareto") > 1).then(1).otherwise(pl.col("mape_pareto")).alias("mape_pareto")
+])
+
+# per-key average MAPE across the horizon
+eval_key_df = eval_df.group_by("key").agg([
+    pl.col("mape_ma").mean().alias("mape_ma_avg"),
+    pl.col("mape_pareto").mean().alias("mape_pareto_avg")
+])
+
+# mark Pareto80 using your existing pareto_df
+eval_key_df = eval_key_df.with_columns(
+    pl.when(pl.col("key").is_in(pareto_df["key"])).then(1).otherwise(0).alias("pareto80_flag")
+)
+
+# aggregate for plot (mean MAPE per group)
+plot_df = (
+    eval_key_df
+    .group_by("pareto80_flag")
+    .agg([
+        pl.col("mape_ma_avg").mean().alias("MA3"),
+        pl.col("mape_pareto_avg").mean().alias("ParetoMixed")
+    ])
+    .sort("pareto80_flag")
+    .to_pandas()
+)
+
+# label groups
+plot_df["group"] = plot_df["pareto80_flag"].map({0:"Non-Pareto", 1:"Pareto"})
+plot_df = plot_df.set_index("group")[["MA3","ParetoMixed"]]
+
+# show numeric table
+print("Average MAPE by group (Horizon: 2025-01 .. 2025-06). Lebaran (2025-03) uses final_forecast:")
+display(plot_df.round(4))
+
+# plot bar chart
+ax = plot_df.plot(kind="bar", figsize=(8,5))
+ax.set_title("MA3 vs Pareto-mixed (Lebaran replaced by final_forecast)")
+ax.set_ylabel("Average MAPE (capped at 1.0)")
+ax.set_ylim(0, max(plot_df.max().max()*1.15, 1.0))
+plt.xticks(rotation=0)
+plt.grid(axis="y", alpha=0.25)
+plt.tight_layout()
+plt.show()
+
+# (Optional) export eval_key_df if you want to inspect per-key changes
+# eval_key_df.write_csv("eval_key_pareto_mixed_vs_ma3.csv")            

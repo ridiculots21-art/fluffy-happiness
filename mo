@@ -602,7 +602,45 @@ festive_ratio_long = festive_avg_df.with_columns(
     label = pl.when(pl.col("month") == 4).then("leb").otherwise("normal")
 )
 
-                            
+
+
+
+# Take only 2023 Jan–Apr
+festive_2023 = so_fcst_df.filter(
+    (pl.col("periods").str.slice(0,4) == "2023") & 
+    (pl.col("periods").str.slice(5,2).cast(pl.Int32) <= 4)
+)
+
+# Aggregate per key and month
+festive_avg_df = festive_2023.groupby(["key","periods"]).agg(
+    pl.col("so_nw_ct").mean().alias("avg_value")
+)
+
+# Extract month number
+festive_avg_df = festive_avg_df.with_columns(
+    month = pl.col("periods").str.slice(5,2).cast(pl.Int32)
+)
+
+# Map month → label
+festive_ratio_long = festive_avg_df.with_columns(
+    label = pl.when(pl.col("month") == 1).then(pl.lit("3m"))
+            .when(pl.col("month") == 2).then(pl.lit("2m"))
+            .when(pl.col("month") == 3).then(pl.lit("1m"))
+            .when(pl.col("month") == 4).then(pl.lit("leb"))
+)
+
+# Compute ratio per key relative to month 4 (lebaran)
+lebaran_values = festive_ratio_long.filter(pl.col("month") == 4).select(["key","avg_value"]).rename({"avg_value":"leb_value"})
+
+festive_ratio_long = festive_ratio_long.join(lebaran_values, on="key", how="left")
+
+festive_ratio_long = festive_ratio_long.with_columns(
+    avg_value = (pl.col("avg_value") / pl.col("leb_value")).round(3)
+).select(["key","label","avg_value"])
+
+festive_ratio_long = festive_ratio_long.sort(["key","label"])
+
+festive_ratio_long.head()
 -------------------------------------------------------------------------------------------------------------------------------------------
 
 

@@ -1602,3 +1602,42 @@ adjusted_group = adjusted_eval_key_df.group_by("pareto80_flag").agg(
 )
 
 ma3_group.join(adjusted_group, on="pareto80_flag")            
+
+
+
+
+
+
+
+
+comparison_group = (
+    eval_key_df
+    .select(["key", "pareto80_flag", "mape_festive_avg"])
+    .join(
+        adjusted_eval_key_df.select(["key", "pareto80_flag", "mape_adjusted_avg"]),
+        on=["key", "pareto80_flag"],
+        how="inner"
+    )
+)
+
+# Compare group averages side-by-side
+comparison_group.group_by("pareto80_flag").agg([
+    pl.col("mape_festive_avg").mean().alias("festive_mape_avg"),
+    pl.col("mape_adjusted_avg").mean().alias("adjusted_mape_avg"),
+    (pl.col("mape_adjusted_avg") - pl.col("mape_festive_avg")).mean().alias("avg_diff")
+])
+
+
+
+
+
+comparison_group.select([
+    (pl.col("mape_adjusted_avg") == pl.col("mape_festive_avg"))
+    .all()
+    .alias("all_keys_identical"),
+
+    (pl.col("mape_adjusted_avg") - pl.col("mape_festive_avg"))
+    .abs()
+    .max()
+    .alias("max_difference_per_key")
+])            

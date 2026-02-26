@@ -1536,6 +1536,39 @@ adjusted_eval_key_df = adjusted_eval_key_df.with_columns(
     .alias("pareto80_flag")
 )
 
+
+
+
+
+
+forecast_final.filter(
+    pl.col("label") == "leb"
+).select(
+    pl.col("key")
+).unique().join(
+    pareto_df.select("key").unique(),
+    on="key",
+    how="inner"
+).shape
+
+
+
+
+
+
+print(
+    "Total leb keys:",
+    forecast_final.filter(pl.col("label") == "leb").select("key").n_unique()
+)
+
+print(
+    "Leb keys in Pareto:",
+    forecast_final.filter(pl.col("label") == "leb")
+    .join(pareto_df.select("key").unique(), on="key", how="inner")
+    .select("key")
+    .n_unique()
+)            
+
 adjusted_eval_key_df.group_by("pareto80_flag").agg(
     pl.col("mape_adjusted_avg").mean().alias("adjusted_mape_avg")
 )            

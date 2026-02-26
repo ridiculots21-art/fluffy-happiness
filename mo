@@ -1572,3 +1572,33 @@ print(
 adjusted_eval_key_df.group_by("pareto80_flag").agg(
     pl.col("mape_adjusted_avg").mean().alias("adjusted_mape_avg")
 )            
+
+
+
+
+comparison_df = (
+    pareto_eval_key_df
+    .join(adjusted_eval_key_df, on=["key", "pareto80_flag"])
+    .with_columns(
+        (pl.col("mape_adjusted_avg") - pl.col("mape_pareto_avg")).alias("diff")
+    )
+)
+
+comparison_df.select([
+    pl.col("diff").abs().max().alias("max_diff"),
+    pl.col("diff").abs().mean().alias("mean_diff"),
+    pl.col("diff").abs().sum().alias("total_diff")
+])
+
+
+
+
+ma3_group = pareto_eval_key_df.group_by("pareto80_flag").agg(
+    pl.col("mape_pareto_avg").mean().alias("ma3_avg")
+)
+
+adjusted_group = adjusted_eval_key_df.group_by("pareto80_flag").agg(
+    pl.col("mape_adjusted_avg").mean().alias("adjusted_avg")
+)
+
+ma3_group.join(adjusted_group, on="pareto80_flag")            

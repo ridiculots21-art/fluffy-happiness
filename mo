@@ -534,148 +534,50 @@ plt.show()
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
-# Cell: Build festive_ratio_long for 2023 only (Jan..Apr) and compute ratios per key
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
+# Filter 2023
+df_2023 = df.filter(pl.col("periods").str.starts_with("2023"))
 
-# target year for FESTIVE LEARNING
-learn_year = 2023
-# lebaran month for that year (you said 2023 lebaran = April)
-lebaran_month = 4
+# Extract month number
+df_2023 = df_2023.with_columns(
+    pl.col("periods").str.split(" ").list.get(1).cast(pl.Int32).alias("month")
+)
 
-# build the 4 period strings for that year's festive window
-leb_dt = datetime(learn_year, lebaran_month, 1)
-p_leb = leb_dt.strftime("%Y %m")
-p_m1  = (leb_dt - relativedelta(months=1)).strftime("%Y %m")
-p_m2  = (leb_dt - relativedelta(months=2)).strftime("%Y %m")
-p_m3  = (leb_dt - relativedelta(months=3)).strftime("%Y %m")
+# Keep only Jan–Apr
+df_2023 = df_2023.filter(pl.col("month").is_in([1,2,3,4]))
 
-periods_for_learning = [p_m3, p_m2, p_m1, p_leb]
-label_map = {
-    p_m3: "3m",
-    p_m2: "2m",
-    p_m1: "1m",
-    p_leb: "leb"
-}
 
-print("Festive learning periods (2023):", periods_for_learning)
-
-# --- 1) filter the history to only those 4 months in 2023 (keep all keys that appear) ---
-df_2023_fest = so_fcst_df.filter(pl.col("periods").is_in(periods_for_learning))
-
-# --- 2) attach label column (3m/2m/1m/leb) ---
-mapping_df = pl.DataFrame({
-    "periods": periods_for_learning,
-    "label": [label_map[p] for p in periods_for_learning]
-})
-
-df_2023_labeled = df_2023_fest.join(mapping_df, on="periods", how="inner")
-
-print("Rows in df_2023_labeled:", df_2023_labeled.height)
-
-# --- 3) compute per-key mean sales for each label (this is the per-key per-month average; here it's just 1-year mean) ---
+# Group by your key(s) and month
 festive_avg_df = (
-    df_2023_labeled
-    .group_by(["key", "label"])
-    .agg(pl.col("so_nw_ct").mean().alias("festive_avg"))
+    df_2023.groupby(["key", "month"])
+    .agg(pl.col("value").mean().alias("avg_value"))
 )
 
-print("festive_avg_df (sample):")
-display(festive_avg_df.head(8).to_pandas())
 
-# --- 4) pivot to wide so we have festive_avg_m3/m2/m1/leb per key (helps to compute ratios cleanly) ---
-festive_avg_wide = (
-    festive_avg_df
-    .pivot(index="key", on="label", values="festive_avg", aggregate_function="first")
-    .rename({
-        "3m": "festive_avg_m3",
-        "2m": "festive_avg_m2",
-        "1m": "festive_avg_m1",
-        "leb": "festive_avg_leb"
-    })
-)
-
-# ensure missing columns exist (if some label entirely missing for all keys, create with nulls)
-for col in ["festive_avg_m3", "festive_avg_m2", "festive_avg_m1", "festive_avg_leb"]:
-    if col not in festive_avg_wide.columns:
-        festive_avg_wide = festive_avg_wide.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
-
-print("festive_avg_wide shape:", festive_avg_wide.shape)
-display(festive_avg_wide.head(6).to_pandas())
-
-# --- 5) compute key mean (mean sales across the 4-month window or across full 2023? 
-# We'll follow your request: use 2023 mean (all months) as key_mean.
-# Use df_2023_labeled (only months 1-4); if you want full 2023 mean instead, change the filter)
-key_mean_df = (
-    df_2023_labeled
-    .group_by("key")
-    .agg(pl.col("so_nw_ct").mean().alias("key_mean"))
-)
-
-# If you prefer key_mean using all 2023 months (not only 1-4), replace df_2023_labeled above with:
-# key_mean_df = so_fcst_df.filter(pl.col("periods").str.starts_with("2023")).group_by("key").agg(pl.col("so_nw_ct").mean().alias("key_mean"))
-
-print("key_mean sample:")
-display(key_mean_df.head(6).to_pandas())
-
-# --- 6) join and compute ratios ---
+# Ratio per month per key
+# Assuming ratio = avg_value / sum(avg_value) per key
 festive_ratio_df = (
-    festive_avg_wide
-    .join(key_mean_df, on="key", how="left")
-    .with_columns([
-        (pl.col("festive_avg_m3") / pl.col("key_mean")).alias("ratio_m3"),
-        (pl.col("festive_avg_m2") / pl.col("key_mean")).alias("ratio_m2"),
-        (pl.col("festive_avg_m1") / pl.col("key_mean")).alias("ratio_m1"),
-        (pl.col("festive_avg_leb") / pl.col("key_mean")).alias("ratio_leb"),
+    festive_avg_df.groupby("key")
+    .agg([
+        (pl.col("avg_value") / pl.col("avg_value").sum()).alias("ratio")
     ])
-    .select(["key", "ratio_m3", "ratio_m2", "ratio_m1", "ratio_leb"])
+    .explode("ratio")  # optional if you need long format
 )
 
-print("festive_ratio_df shape:", festive_ratio_df.shape)
-display(festive_ratio_df.head(8).to_pandas())
 
-# --- 7) long format (key | label | festive_ratio) ready to join to forecast rows ---
+# Reuse festive_ratio_long for labeling
+# Example: month 4 is Lebaran
 festive_ratio_long = (
-    festive_ratio_df
-    .with_columns([
-        pl.col("ratio_m3").alias("3m"),
-        pl.col("ratio_m2").alias("2m"),
-        pl.col("ratio_m1").alias("1m"),
-        pl.col("ratio_leb").alias("leb"),
-    ])
-    .select(["key", "3m", "2m", "1m", "leb"])
-    .melt(id_vars="key", variable_name="label", value_name="festive_ratio")
-    .sort(["key", "label"])
+    festive_ratio_df.with_columns(
+        pl.when(pl.col("month") == 4).then("leb").otherwise("normal").alias("label")
+    )
 )
 
-# keep nulls/zeros here — handling (e.g., convert 0 -> null) will be done at apply-time
-print("festive_ratio_long shape:", festive_ratio_long.shape)
-display(festive_ratio_long.head(10).to_pandas())
 
-
-
-
-# 2023 lebaran month = April
-leb_dt = datetime(2023, 4, 1)
-
-# periods for 3 months before lebaran + lebaran month itself
-p_m3 = "2023 01"  # 3 months before lebaran
-p_m2 = "2023 02"  # 2 months before
-p_m1 = "2023 03"  # 1 month before
-p_leb = "2023 04" # lebaran month
-
-periods_for_learning = [p_m3, p_m2, p_m1, p_leb]
-
-
-
-
-import polars as pl
-
-# Define mapping from month number to festive label
-label_map = pl.DataFrame({
-    "month": [1, 2, 3, 4],
-    "label": ["m-1", "m-2", "m-3", "leb"]  # or whatever your naming convention is
-})
+forecast_with_ratio = forecast.join(
+    festive_ratio_long,
+    on=["key", "month"],  # match by key and month
+    how="left"
+)
 -------------------------------------------------------------------------------------------------------------------------------------------       
 
 

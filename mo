@@ -28,99 +28,6 @@ lebaran_period_map
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
-
-# --- NEW CELL: Pareto bar (MA3 everywhere except leb -> final_forecast for leb) ---
-import matplotlib.pyplot as plt
-import pandas as pd
-
-# evaluation window
-periods_eval = [f"2025 {m:02d}" for m in range(1, 7)]
-
-# sanity check: objects exist
-if "forecast_final" not in globals():
-    raise RuntimeError("forecast_final not found - run previous cells to create it first.")
-if "pareto_df" not in globals():
-    raise RuntimeError("pareto_df not found - run the pareto creation cell first.")
-
-# select eval window and required cols
-df_eval = (
-    forecast_final
-    .filter(pl.col("periods").is_in(periods_eval))
-    .select([
-        "key", "periods", "label", "ma3", "final_forecast", "so_nw_ct"
-    ])
-)
-
-# choose forecast value:
-# - if label == 'leb' and final_forecast exists -> use final_forecast
-# - otherwise use ma3
-df_eval = df_eval.with_columns(
-    forecast_used = pl.when(
-        (pl.col("label") == "leb") & pl.col("final_forecast").is_not_null()
-    ).then(pl.col("final_forecast")).otherwise(pl.col("ma3"))
-)
-
-# compute absolute error and MAPE (only where actual > 0). cap MAPE at 1 (100%)
-df_eval = df_eval.with_columns(
-    ae = (pl.col("forecast_used") - pl.col("so_nw_ct")).abs(),
-    mape = pl.when(pl.col("so_nw_ct") > 0)
-            .then(pl.col("ae") / pl.col("so_nw_ct"))
-            .otherwise(None)
-).with_columns(
-    mape = pl.when(pl.col("mape") > 1).then(1).otherwise(pl.col("mape"))
-)
-
-# drop keys that have no valid mape at all (optional, keeps averages meaningful)
-per_key = (
-    df_eval
-    .group_by("key")
-    .agg(
-        pl.col("mape").mean().alias("mape_avg"),
-        pl.col("mape").null_count().alias("mape_nulls"),
-        pl.col("mape").count().alias("n_periods_evaluated")
-    )
-)
-
-# attach pareto flag (1 = pareto, 0 = non-pareto)
-per_key = per_key.with_columns(
-    pareto80_flag = pl.when(per_key["key"].is_in(pareto_df["key"])).then(1).otherwise(0)
-)
-
-# keep only keys that had at least one non-null mape (n_periods_evaluated - mape_nulls > 0)
-per_key = per_key.filter((pl.col("n_periods_evaluated") - pl.col("mape_nulls")) > 0)
-
-# summary by pareto flag
-summary = (
-    per_key
-    .group_by("pareto80_flag")
-    .agg(
-        pl.col("mape_avg").mean().alias("avg_mape"),
-        pl.count().alias("comb_count")
-    )
-    .sort("pareto80_flag")
-)
-
-# convert to pandas and plot (showing percent)
-pdf = summary.to_pandas().set_index("pareto80_flag")
-pdf.index = pdf.index.map({0: "Non Pareto", 1: "Pareto"})
-pdf["avg_mape_pct"] = pdf["avg_mape"] * 100
-
-# basic bar plot
-ax = pdf["avg_mape_pct"].plot(kind="bar", figsize=(6,4), rot=0)
-ax.set_ylabel("Average MAPE (%)")
-ax.set_title("Pareto vs Non-Pareto (MA3 except Leb -> final_forecast for Leb)")
-for p in ax.patches:
-    ax.annotate(f"{p.get_height():.2f}%", (p.get_x() + p.get_width()/2, p.get_height()),
-                ha="center", va="bottom", fontsize=9)
-
-plt.grid(axis="y", alpha=0.25)
-plt.tight_layout()
-plt.show()
-
-# also show table for quick inspection
-print("\nSummary table (avg_mape as fraction and key counts):")
-display(summary)
-
 # Cell 2: extract MA forecasts for the forecast horizon
 start_period = "2025 01"
 end_period   = "2025 06"
@@ -1049,7 +956,97 @@ plt.show()
             
 -----------------------------------------------------------            
 
+# --- NEW CELL: Pareto bar (MA3 everywhere except leb -> final_forecast for leb) ---
+import matplotlib.pyplot as plt
+import pandas as pd
 
+# evaluation window
+periods_eval = [f"2025 {m:02d}" for m in range(1, 7)]
+
+# sanity check: objects exist
+if "forecast_final" not in globals():
+    raise RuntimeError("forecast_final not found - run previous cells to create it first.")
+if "pareto_df" not in globals():
+    raise RuntimeError("pareto_df not found - run the pareto creation cell first.")
+
+# select eval window and required cols
+df_eval = (
+    forecast_final
+    .filter(pl.col("periods").is_in(periods_eval))
+    .select([
+        "key", "periods", "label", "ma3", "final_forecast", "so_nw_ct"
+    ])
+)
+
+# choose forecast value:
+# - if label == 'leb' and final_forecast exists -> use final_forecast
+# - otherwise use ma3
+df_eval = df_eval.with_columns(
+    forecast_used = pl.when(
+        (pl.col("label") == "leb") & pl.col("final_forecast").is_not_null()
+    ).then(pl.col("final_forecast")).otherwise(pl.col("ma3"))
+)
+
+# compute absolute error and MAPE (only where actual > 0). cap MAPE at 1 (100%)
+df_eval = df_eval.with_columns(
+    ae = (pl.col("forecast_used") - pl.col("so_nw_ct")).abs(),
+    mape = pl.when(pl.col("so_nw_ct") > 0)
+            .then(pl.col("ae") / pl.col("so_nw_ct"))
+            .otherwise(None)
+).with_columns(
+    mape = pl.when(pl.col("mape") > 1).then(1).otherwise(pl.col("mape"))
+)
+
+# drop keys that have no valid mape at all (optional, keeps averages meaningful)
+per_key = (
+    df_eval
+    .group_by("key")
+    .agg(
+        pl.col("mape").mean().alias("mape_avg"),
+        pl.col("mape").null_count().alias("mape_nulls"),
+        pl.col("mape").count().alias("n_periods_evaluated")
+    )
+)
+
+# attach pareto flag (1 = pareto, 0 = non-pareto)
+per_key = per_key.with_columns(
+    pareto80_flag = pl.when(per_key["key"].is_in(pareto_df["key"])).then(1).otherwise(0)
+)
+
+# keep only keys that had at least one non-null mape (n_periods_evaluated - mape_nulls > 0)
+per_key = per_key.filter((pl.col("n_periods_evaluated") - pl.col("mape_nulls")) > 0)
+
+# summary by pareto flag
+summary = (
+    per_key
+    .group_by("pareto80_flag")
+    .agg(
+        pl.col("mape_avg").mean().alias("avg_mape"),
+        pl.count().alias("comb_count")
+    )
+    .sort("pareto80_flag")
+)
+
+# convert to pandas and plot (showing percent)
+pdf = summary.to_pandas().set_index("pareto80_flag")
+pdf.index = pdf.index.map({0: "Non Pareto", 1: "Pareto"})
+pdf["avg_mape_pct"] = pdf["avg_mape"] * 100
+
+# basic bar plot
+ax = pdf["avg_mape_pct"].plot(kind="bar", figsize=(6,4), rot=0)
+ax.set_ylabel("Average MAPE (%)")
+ax.set_title("Pareto vs Non-Pareto (MA3 except Leb -> final_forecast for Leb)")
+for p in ax.patches:
+    ax.annotate(f"{p.get_height():.2f}%", (p.get_x() + p.get_width()/2, p.get_height()),
+                ha="center", va="bottom", fontsize=9)
+
+plt.grid(axis="y", alpha=0.25)
+plt.tight_layout()
+plt.show()
+
+# also show table for quick inspection
+print("\nSummary table (avg_mape as fraction and key counts):")
+display(summary)
             
 -----------------------------------------------------------            
 

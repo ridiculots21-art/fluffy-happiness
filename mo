@@ -1466,16 +1466,28 @@ adjusted_eval_key_df.group_by("pareto80_flag").agg(
 
 
 
-forecast_final.select([
-    (pl.col("final_forecast") - pl.col("ma3")).abs().max().alias("max_difference"),
-    (pl.col("final_forecast") != pl.col("ma3")).sum().alias("num_different_rows")
-])
+       
 
-forecast_final.filter(pl.col("label") == "leb").select([
-    (pl.col("final_forecast") - pl.col("ma3")).abs().max().alias("leb_max_difference"),
-    pl.count().alias("leb_rows")
-])
 
-forecast_final.filter(pl.col("label") == "leb").select([
-    "effective_ratio"
-]).describe()            
+
+adjusted_eval_df = (
+    forecast_final
+    .filter(
+        pl.when(pl.col("label") == "leb")
+        .then(pl.col("final_forecast").is_not_nan())
+        .otherwise(pl.col("ma3").is_not_nan())
+    )
+    .with_columns([
+        pl.when(pl.col("label") == "leb")
+        .then(pl.col("final_forecast"))
+        .otherwise(pl.col("ma3"))
+        .alias("adjusted_forecast")
+    ])
+    .with_columns([
+        (pl.col("adjusted_forecast") - pl.col("so_nw_ct")).abs().alias("ae_adjusted"),
+    ])
+    .with_columns([
+        (pl.col("ae_adjusted") / pl.col("so_nw_ct"))
+        .alias("mape_adjusted")
+    ])
+)

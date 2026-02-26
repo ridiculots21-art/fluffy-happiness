@@ -1459,3 +1459,25 @@ adjusted_eval_key_df = adjusted_eval_key_df.with_columns(
 adjusted_eval_key_df.group_by("pareto80_flag").agg(
     pl.col("mape_adjusted_avg").mean().alias("adjusted_mape_avg")
 )
+
+
+
+
+
+
+
+forecast_final.with_columns([
+    pl.when(pl.col("label") == "leb")
+    .then(pl.col("final_forecast"))
+    .otherwise(pl.col("ma3"))
+    .alias("adjusted_forecast_test")
+]).select([
+    (pl.col("adjusted_forecast_test") == pl.col("final_forecast")).all().alias("all_equal_to_festive"),
+    (pl.col("adjusted_forecast_test") == pl.col("ma3")).all().alias("all_equal_to_ma3")
+])
+
+
+
+
+
+forecast_final.select("label").unique().sort("label")            

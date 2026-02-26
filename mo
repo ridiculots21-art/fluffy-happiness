@@ -1410,3 +1410,26 @@ adjusted_eval_key_df = adjusted_eval_key_df.with_columns(
 adjusted_eval_key_df.group_by("pareto80_flag").agg(
     pl.col("mape_adjusted_avg").mean().alias("adjusted_mape_avg")
 )
+
+
+
+
+
+
+
+forecast_final.group_by("label").agg(
+    pl.count().alias("rows")
+)
+
+
+forecast_final.with_columns(
+    pl.col("label").str.contains("leb").alias("leb_match")
+).group_by("leb_match").agg(pl.count())
+
+
+
+
+forecast_final.filter(pl.col("label") == "leb").select([
+    "ma3",
+    "final_forecast"
+])            

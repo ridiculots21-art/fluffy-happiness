@@ -1320,14 +1320,13 @@ pareto_eval_key_df.group_by("pareto80_flag").agg(
 
 
 # Adjusted Pareto evaluation:
-# Use MA3 normally, but for month 3 use final_forecast
+# Use MA3 normally, but replace rows labeled "leb" with final_forecast
 
 adjusted_eval_df = (
     forecast_final
     .filter(pl.col("ma3").is_not_nan())
     .with_columns([
-        # Use final_forecast only for month 3, otherwise ma3
-        pl.when(pl.col("month") == 3)
+        pl.when(pl.col("leb") == 1)
         .then(pl.col("final_forecast"))
         .otherwise(pl.col("ma3"))
         .alias("adjusted_forecast")

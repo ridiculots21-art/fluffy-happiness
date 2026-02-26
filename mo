@@ -665,6 +665,17 @@ p_m1 = "2023 03"  # 1 month before
 p_leb = "2023 04" # lebaran month
 
 periods_for_learning = [p_m3, p_m2, p_m1, p_leb]
+
+
+
+
+import polars as pl
+
+# Define mapping from month number to festive label
+label_map = pl.DataFrame({
+    "month": [1, 2, 3, 4],
+    "label": ["m-1", "m-2", "m-3", "leb"]  # or whatever your naming convention is
+})
 -------------------------------------------------------------------------------------------------------------------------------------------       
 
 

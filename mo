@@ -1050,6 +1050,104 @@ display(summary)
             
 -----------------------------------------------------------            
 
+# ---------------------------
+# CONFIG: choose which adjusted forecast to use for Lebaran month
+# options: 'final' -> use forecast_final["final_forecast"]
+#          'multiplicative' -> use forecast_final["festive_adjusted_forecast"]
+LEBARAN_USE = 'final'   # set to 'multiplicative' if you prefer the raw multiplicative adjustment
 
+# lebaran period and forecast horizon
+LEBARAN_PERIOD = "2025 03"
+HORIZON_START = "2025 01"
+HORIZON_END   = "2025 06"
+
+# pick column name for the lebaran adjusted forecast
+if LEBARAN_USE == 'final':
+    lebaran_col = "final_forecast"
+else:
+    lebaran_col = "festive_adjusted_forecast"
+
+# ---------- construct the "pareto-mixed" forecast series ----------
+# ensure forecast_final contains the columns we need: key, periods, ma3, {lebaran_col}, so_nw_ct
+needed_cols = {"key","periods","ma3","so_nw_ct", lebaran_col}
+missing = needed_cols - set(forecast_final.columns)
+if missing:
+    raise RuntimeError(f"Missing required columns in forecast_final: {missing}")
+
+# restrict to forecast horizon (2025-01 .. 2025-06)
+horizon_df = forecast_final.filter(
+    (pl.col("periods") >= HORIZON_START) & (pl.col("periods") <= HORIZON_END)
+).select(["key","periods","ma3","so_nw_ct", lebaran_col])
+
+# build pareto_forecast: use lebaran_col only for the lebaran period, otherwise ma3
+horizon_df = horizon_df.with_columns(
+    pl.when((pl.col("periods") == LEBARAN_PERIOD) & pl.col(lebaran_col).is_not_null())
+      .then(pl.col(lebaran_col))
+      .otherwise(pl.col("ma3"))
+      .alias("pareto_forecast")
+)
+
+# ---------- evaluate: MAPE for MA3 (baseline) and MAPE for Pareto-mixed ----------
+eval_df = horizon_df.with_columns([
+    # absolute errors
+    (pl.col("ma3") - pl.col("so_nw_ct")).abs().alias("ae_ma"),
+    (pl.col("pareto_forecast") - pl.col("so_nw_ct")).abs().alias("ae_pareto_mixed")
+]).with_columns([
+    # MAPE (cap at 1 and handle zero actuals)
+    pl.when(pl.col("so_nw_ct") > 0)
+      .then(pl.col("ae_ma") / pl.col("so_nw_ct"))
+      .otherwise(None)
+      .alias("mape_ma"),
+
+    pl.when(pl.col("so_nw_ct") > 0)
+      .then(pl.col("ae_pareto_mixed") / pl.col("so_nw_ct"))
+      .otherwise(None)
+      .alias("mape_pareto_mixed")
+]).with_columns([
+    pl.when(pl.col("mape_ma") > 1).then(1).otherwise(pl.col("mape_ma")).alias("mape_ma"),
+    pl.when(pl.col("mape_pareto_mixed") > 1).then(1).otherwise(pl.col("mape_pareto_mixed")).alias("mape_pareto_mixed")
+])
+
+# ---------- aggregate per key ----------
+eval_key_df = eval_df.group_by("key").agg([
+    pl.col("mape_ma").mean().alias("mape_ma_avg"),
+    pl.col("mape_pareto_mixed").mean().alias("mape_pareto_mixed_avg")
+])
+
+# flag Pareto80 based on your pareto_df (the same pareto_df you created earlier)
+eval_key_df = eval_key_df.with_columns(
+    pl.when(pl.col("key").is_in(pareto_df["key"])).then(1).otherwise(0).alias("pareto80_flag")
+)
+
+# ---------- aggregate for plotting: group-by pareto80_flag ----------
+plot_df = (
+    eval_key_df
+    .group_by("pareto80_flag")
+    .agg([
+        pl.col("mape_ma_avg").mean().alias("MA3"),
+        pl.col("mape_pareto_mixed_avg").mean().alias("ParetoMixed")
+    ])
+    .sort("pareto80_flag")
+    .to_pandas()
+)
+
+# convert flag to label for nicer plotting
+plot_df["group"] = plot_df["pareto80_flag"].map({0:"Non-Pareto", 1:"Pareto"})
+plot_df = plot_df.set_index("group")[["MA3","ParetoMixed"]]
+
+# ---------- print numeric comparison ----------
+print("Average MAPE by group (Horizon: 2025-01 .. 2025-06). Lebaran month used from:", lebaran_col)
+print(plot_df.round(4))
+
+# ---------- plot bar chart ----------
+import matplotlib.pyplot as plt
+ax = plot_df.plot(kind="bar", figsize=(8,5))
+ax.set_title("MA3 vs Pareto-mixed (Lebaran replaced by adjusted forecast)")
+ax.set_ylabel("Average MAPE (capped at 1.0)")
+ax.set_ylim(0, plot_df[["MA3","ParetoMixed"]].max().max()*1.15)
+plt.xticks(rotation=0)
+plt.grid(axis="y", alpha=0.25)
+plt.tight_layout()
+plt.show()
 
 -----------------------------------------------------------            

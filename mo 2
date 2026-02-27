@@ -377,3 +377,118 @@ display(forecast_with_arima.filter(pl.col("arima_pred").is_not_null()).select(
 
 # keep the new frame in memory for next cells
 globals()["forecast_with_arima"] = forecast_with_arima
+
+
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+arima_eval_df = (
+    forecast_with_arima
+    .with_columns(
+
+        # Adjusted ARIMA forecast (replace only Lebaran month)
+        pl.when(pl.col("periods") == "2025 03")
+        .then(pl.col("final_forecast"))
+        .otherwise(pl.col("arima_pred"))
+        .alias("arima_adjusted")
+
+    )
+)
+
+arima_eval_df.select(
+    ["key","periods","arima_pred","arima_adjusted","final_forecast"]
+).head()
+
+-------------------------------------------------------------------------------------------------------------------------
+
+arima_eval_df = (
+    arima_eval_df
+    .with_columns([
+
+        (pl.col("arima_pred") - pl.col("so_nw_ct")).abs().alias("ae_arima"),
+        (pl.col("arima_adjusted") - pl.col("so_nw_ct")).abs().alias("ae_arima_adj")
+
+    ])
+    .with_columns([
+
+        pl.when(pl.col("so_nw_ct") > 0)
+        .then(pl.col("ae_arima") / pl.col("so_nw_ct"))
+        .otherwise(None)
+        .alias("mape_arima"),
+
+        pl.when(pl.col("so_nw_ct") > 0)
+        .then(pl.col("ae_arima_adj") / pl.col("so_nw_ct"))
+        .otherwise(None)
+        .alias("mape_arima_adj")
+
+    ])
+)
+
+-------------------------------------------------------------------------------------------------------------------------
+
+arima_key_df = (
+    arima_eval_df
+    .group_by("key")
+    .agg([
+        pl.col("mape_arima").mean().alias("mape_arima_avg"),
+        pl.col("mape_arima_adj").mean().alias("mape_arima_adj_avg")
+    ])
+)
+
+arima_key_df = arima_key_df.fill_nan(0.0).fill_null(0.0)
+
+-------------------------------------------------------------------------------------------------------------------------
+
+arima_key_df = arima_key_df.with_columns(
+    pl.when(pl.col("key").is_in(pareto_df["key"]))
+    .then(1)
+    .otherwise(0)
+    .alias("pareto80_flag")
+)
+
+-------------------------------------------------------------------------------------------------------------------------
+
+plot_df = (
+    arima_key_df
+    .group_by("pareto80_flag")
+    .agg([
+        pl.col("mape_arima_avg").mean().alias("ARIMA"),
+        pl.col("mape_arima_adj_avg").mean().alias("ARIMA_Adjusted")
+    ])
+    .sort("pareto80_flag")
+    .to_pandas()
+)
+
+plot_df.set_index("pareto80_flag").plot(kind="bar", figsize=(8,5))
+
+plt.title("ARIMA vs ARIMA Adjusted MAPE\nPareto vs Non-Pareto")
+plt.ylabel("Average MAPE")
+plt.xticks([0,1], ["Non Pareto", "Pareto"], rotation=0)
+plt.legend()
+plt.show()
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+
+-------------------------------------------------------------------------------------------------------------------------

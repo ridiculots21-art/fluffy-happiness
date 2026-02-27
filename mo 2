@@ -11,3 +11,38 @@ leb_2025_df = forecast_final.filter(
 
 print("Rows:", leb_2025_df.height)
 leb_2025_df.head(20)
+
+
+
+
+# extract Lebaran-adjusted forecast (March 2025)
+leb_forecast = forecast_final.filter(
+    pl.col("periods") == "2025 03"
+).select([
+    "key",
+    pl.col("final_forecast").alias("leb_forecast")
+])
+
+# join to baseline MA forecast table
+ma_adjusted_df = rs_with_error_ma.join(
+    leb_forecast,
+    on="key",
+    how="left"
+)
+
+# replace MA forecast only for March 2025
+ma_adjusted_df = ma_adjusted_df.with_columns(
+    forecast_final = pl.when(pl.col("periods") == "2025 03")
+        .then(pl.col("leb_forecast"))
+        .otherwise(pl.col("ma3"))
+)
+
+ma_adjusted_df.select([
+    "key",
+    "periods",
+    "ma3",
+    "leb_forecast",
+    "forecast_final"
+]).filter(pl.col("periods").is_in([
+    "2025 01","2025 02","2025 03","2025 04","2025 05","2025 06"
+])).head(20)

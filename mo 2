@@ -748,7 +748,16 @@ globals()["bad_pareto_arima"] = bad_pareto
 
 -------------------------------------------------------------------------------------------------------------------------
 
+arima_df.select([
+    pl.count().alias("rows"),
+    pl.col("so_nw_ct").filter(pl.col("so_nw_ct") == 0).count().alias("zero_actual"),
+    pl.col("pred").filter(pl.col("pred") == 0).count().alias("zero_pred")
+])
 
+
+arima_eval.select(
+    ["so_nw_ct_f","pred_f","mape_arima"]
+).head(20)
 
 -------------------------------------------------------------------------------------------------------------------------
 

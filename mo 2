@@ -637,3 +637,137 @@ arima_eval_df = (
 )
 
 -------------------------------------------------------------------------------------------------------------------------
+
+# Cell: evaluate ARIMA file standalone -> per-key avg MAPE -> pareto80_flag -> filter avg MAPE > 1
+from pathlib import Path
+import polars as pl
+
+ARIMA_FILE = "arima_forecast_2025Q3.csv"   # adjust filename if needed
+
+# ---------- load & basic checks ----------
+p = Path(ARIMA_FILE)
+if not p.exists():
+    raise RuntimeError(f"ARIMA file not found: {ARIMA_FILE}")
+
+arima_df = pl.read_csv(p)
+
+# normalize column names to lowercase
+arima_df = arima_df.rename({c: c.lower() for c in arima_df.columns})
+
+required = {"key", "periods", "so_nw_ct", "pred"}
+missing = required - set(arima_df.columns)
+if missing:
+    raise RuntimeError(f"ARIMA file missing required columns: {missing}. Found: {arima_df.columns}")
+
+# normalize periods into "YYYY MM" (handle "YYYY-MM", "YYYY_MM", "YYYYMM", "YYYY MM")
+def normalize_periods(pol_df, col="periods"):
+    s = pol_df[col].cast(pl.Utf8)
+    s = s.str.replace("-", " ").str.replace("_", " ")
+    s = pl.when(s.str.len_chars() == 6).then(s.str.slice(0,4) + " " + s.str.slice(4,6)).otherwise(s)
+    return s
+
+arima_df = arima_df.with_columns(
+    normalize_periods(arima_df, "periods").alias("periods"),
+    pl.col("pred").cast(pl.Float64).alias("pred_f"),
+    pl.col("so_nw_ct").cast(pl.Float64).alias("so_nw_ct_f")
+)
+
+print("ARIMA rows loaded:", arima_df.height)
+print("Unique periods (sample):")
+display(arima_df.select(pl.col("periods").unique()).head(30).to_pandas())
+
+# ---------- compute per-row MAPE (None when actual==0) ----------
+arima_eval = arima_df.with_columns(
+    pl.when(pl.col("so_nw_ct_f") > 0)
+      .then((pl.col("pred_f") - pl.col("so_nw_ct_f")).abs() / pl.col("so_nw_ct_f"))
+      .otherwise(None)
+    .alias("mape_arima")
+)
+
+# ---------- per-key average MAPE ----------
+arima_key_mape = (
+    arima_eval
+    .group_by("key")
+    .agg([
+        pl.col("mape_arima").mean().alias("mape_arima_avg"),
+        pl.count().alias("n_periods")
+    ])
+    .sort("mape_arima_avg", descending=True)
+)
+
+# ---------- ensure pareto_df available or build it ----------
+if "pareto_df" not in globals():
+    # fallback: build pareto_df from so_fcst_df for 2025 (replicate your earlier logic)
+    if "so_fcst_df" not in globals():
+        raise RuntimeError("pareto_df not found and so_fcst_df also not present to compute it.")
+    pareto_df = (
+        so_fcst_df
+        .filter(pl.col("periods").str.contains("2025"))
+        .group_by("key")
+        .agg(pl.col("so_nw_ct").sum().alias("so_sum"))
+        .sort("so_sum", descending=True)
+        .with_columns((pl.col("so_sum").cum_sum() / pl.col("so_sum").sum()).alias("cum_ratio"))
+        .filter(pl.col("cum_ratio") < 0.8)
+        .select("key")
+    )
+    print("Built pareto_df fallback from so_fcst_df (2025).")
+else:
+    # ensure pareto_df has a 'key' column
+    if "key" not in pareto_df.columns:
+        raise RuntimeError("pareto_df exists but has no 'key' column.")
+
+# ---------- attach pareto80_flag ----------
+arima_key_mape = arima_key_mape.with_columns(
+    pl.when(pl.col("key").is_in(pareto_df["key"])).then(1).otherwise(0).alias("pareto80_flag")
+)
+
+# replace NaN/null averages with 0 for clarity (optional)
+arima_key_mape = arima_key_mape.fill_nan(0.0).fill_null(0.0)
+
+# ---------- diagnostics ----------
+print("Total unique keys in ARIMA file:", arima_key_mape.height)
+print("Pareto80 keys present in ARIMA file:", arima_key_mape.filter(pl.col("pareto80_flag") == 1).height)
+print("\nTop 10 keys by avg MAPE (uncapped):")
+display(arima_key_mape.head(10).to_pandas())
+
+# ---------- filter Pareto80 and avg MAPE > 1 ----------
+bad_pareto = (
+    arima_key_mape
+    .filter((pl.col("pareto80_flag") == 1) & (pl.col("mape_arima_avg") > 1))
+    .sort("mape_arima_avg", descending=True)
+)
+
+print(f"\nPareto80 keys with avg MAPE > 1: {bad_pareto.height}")
+display(bad_pareto.to_pandas())
+
+# expose for later use
+globals()["arima_eval"] = arima_eval
+globals()["arima_key_mape"] = arima_key_mape
+globals()["bad_pareto_arima"] = bad_pareto
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+
+-------------------------------------------------------------------------------------------------------------------------

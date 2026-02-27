@@ -21,3 +21,12 @@ leb_final_df = forecast_final.filter(
 # quick verification
 print("Lebaran final_forecast rows (excluding 2025):", leb_final_df.height)
 leb_final_df.head(20)
+
+
+
+
+forecast_final.select(pl.col("label").unique()).sort("label")
+
+forecast_final.select(pl.col("periods").unique()).sort("periods").head(20)
+
+forecast_final.filter(pl.col("label") == "leb").head(20)

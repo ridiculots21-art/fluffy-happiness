@@ -168,3 +168,86 @@ plt.xlabel("Model")
 plt.legend(title="Pareto80")
 
 plt.show()
+
+
+
+
+# Cell: create adjusted_forecast (March replaced), compute per-key MAPEs, compare Pareto vs Non-Pareto
+import polars as pl
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+
+# guard: ensure required frames exist
+for name in ["forecast_final", "pareto_df"]:
+    if name not in globals():
+        raise RuntimeError(f"`{name}` not found in memory. Run prior cells that produce it.")
+
+# build adjusted forecast column (safe: don't overwrite existing final_forecast)
+forecast_adj = forecast_final.with_columns(
+    pl.when(pl.col("periods") == "2025 03")
+      .then(pl.col("final_forecast"))
+      .otherwise(pl.col("ma3"))
+    .alias("adjusted_forecast")
+)
+
+# keep only the 2025 Jan-Jun horizon for evaluation (same window you used)
+eval_window = ["2025 01","2025 02","2025 03","2025 04","2025 05","2025 06"]
+eval_df = (
+    forecast_adj
+    .filter(pl.col("periods").is_in(eval_window) & pl.col("ma3").is_not_null())
+    .with_columns([
+        (pl.col("ma3") - pl.col("so_nw_ct")).abs().alias("ae_ma"),
+        (pl.col("adjusted_forecast") - pl.col("so_nw_ct")).abs().alias("ae_adj")
+    ])
+    .with_columns([
+        pl.when(pl.col("so_nw_ct") > 0).then(pl.col("ae_ma") / pl.col("so_nw_ct")).otherwise(None).alias("mape_ma"),
+        pl.when(pl.col("so_nw_ct") > 0).then(pl.col("ae_adj") / pl.col("so_nw_ct")).otherwise(None).alias("mape_adj")
+    ])
+)
+
+# average per key
+eval_key_df = (
+    eval_df
+    .group_by("key")
+    .agg([
+        pl.col("mape_ma").mean().alias("mape_ma_avg"),
+        pl.col("mape_adj").mean().alias("mape_adj_avg")
+    ])
+)
+
+# attach pareto flag
+eval_key_df = eval_key_df.with_columns(
+    pl.when(pl.col("key").is_in(pareto_df["key"]))
+      .then(1)
+      .otherwise(0)
+    .alias("pareto80_flag")
+)
+
+# show some diagnostics
+print("Per-key sample (head):")
+display(eval_key_df.head(10).to_pandas())
+
+# group by pareto flag and compute average of the per-key averages
+grouped = eval_key_df.group_by("pareto80_flag").agg([
+    pl.col("mape_ma_avg").mean().alias("ma_avg"),
+    pl.col("mape_adj_avg").mean().alias("adj_avg"),
+    pl.count().alias("n_keys")
+]).sort("pareto80_flag")
+
+print("\nAggregate comparison (Pareto flag):")
+display(grouped.to_pandas())
+
+# tidy df for plotting (4 bars)
+plot_df = grouped.with_columns([
+    pl.col("pareto80_flag").cast(pl.Utf8)
+]).melt(id_vars="pareto80_flag", value_vars=["ma_avg","adj_avg"], variable_name="metric", value_name="avg_mape").to_pandas()
+
+plt.figure(figsize=(7,5))
+sns.barplot(data=plot_df, x="metric", y="avg_mape", hue="pareto80_flag")
+plt.title("Baseline MA vs Adjusted MA — average per-key MAPE\n(Grouped: Non-Pareto=0, Pareto=1)")
+plt.ylabel("Average MAPE (per-key mean)")
+plt.xlabel("")
+plt.legend(title="pareto80_flag")
+plt.tight_layout()
+plt.show()

@@ -532,21 +532,108 @@ globals()["bad_pareto_arima"] = bad_pareto
 
 -------------------------------------------------------------------------------------------------------------------------
 
+# attach pareto flag to forecast_with_arima
+forecast_with_arima = forecast_with_arima.join(
+    so_fcst_df.select(["key","pareto80_flag"]),
+    on="key",
+    how="left"
+)
 
+# compute MAPE per row
+arima_eval_df = (
+    forecast_with_arima
+    .with_columns(
+        pl.when(pl.col("so_nw_ct") > 0)
+        .then((pl.col("arima_pred") - pl.col("so_nw_ct")).abs() / pl.col("so_nw_ct"))
+        .otherwise(None)
+        .alias("mape_arima")
+    )
+)
+
+# average MAPE per key
+arima_key_df = (
+    arima_eval_df
+    .group_by(["key","pareto80_flag"])
+    .agg(
+        pl.col("mape_arima").mean().alias("mape_arima_avg")
+    )
+)
+
+arima_key_df = arima_key_df.fill_nan(0).fill_null(0)
+
+print("Sample per-key MAPE:")
+display(arima_key_df.head(10).to_pandas())
 
 -------------------------------------------------------------------------------------------------------------------------
 
+pareto_keys = arima_key_df.filter(pl.col("pareto80_flag") == 1)
 
-
--------------------------------------------------------------------------------------------------------------------------
-
-
--------------------------------------------------------------------------------------------------------------------------
-
-
+print("Pareto keys count:", pareto_keys.height)
+display(pareto_keys.head(10).to_pandas())
 
 -------------------------------------------------------------------------------------------------------------------------
 
+bad_pareto = (
+    pareto_keys
+    .filter(pl.col("mape_arima_avg") > 1)
+    .sort("mape_arima_avg", descending=True)
+)
 
+print("Pareto keys with avg MAPE > 1:", bad_pareto.height)
+display(bad_pareto.to_pandas())
+
+-------------------------------------------------------------------------------------------------------------------------
+
+from pathlib import Path
+
+ARIMA_FILE = "arima_forecast_2025Q3.csv"
+
+p = Path(ARIMA_FILE)
+if not p.exists():
+    raise RuntimeError(f"{ARIMA_FILE} not found")
+
+arima_q3 = pl.read_csv(p)
+
+# normalize column names
+arima_q3 = arima_q3.rename({c: c.lower() for c in arima_q3.columns})
+
+# normalize periods
+arima_q3 = arima_q3.with_columns(
+    normalize_periods(arima_q3, "periods").alias("periods")
+)
+
+# ensure numeric
+arima_q3 = arima_q3.with_columns(pl.col("pred").cast(pl.Float64))
+
+# join
+forecast_with_arima_q3 = forecast_final.join(
+    arima_q3.select(["key","periods","pred"]),
+    on=["key","periods"],
+    how="left"
+).with_columns(
+    pl.col("pred").alias("arima_pred")
+)
+
+-------------------------------------------------------------------------------------------------------------------------
+
+eval_window = [
+    "2025 07",
+    "2025 08",
+    "2025 09",
+    "2025 10",
+    "2025 11",
+    "2025 12"
+]
+
+arima_eval_df = (
+    forecast_with_arima_q3
+    .filter(pl.col("periods").is_in(eval_window))
+    .with_columns(
+        pl.when(pl.col("so_nw_ct") > 0)
+        .then((pl.col("arima_pred") - pl.col("so_nw_ct")).abs() / pl.col("so_nw_ct"))
+        .otherwise(None)
+        .alias("mape_arima")
+    )
+)
 
 -------------------------------------------------------------------------------------------------------------------------

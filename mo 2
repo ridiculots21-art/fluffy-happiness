@@ -284,3 +284,96 @@ ax.legend(["MA3 Baseline", "MA3 Adjusted"])
 
 plt.tight_layout()
 plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Cell 1: load ARIMA CSV, normalize periods, join pred into forecast_final as `arima_pred`
+from pathlib import Path
+import polars as pl
+
+ARIMA_FILE = "arime_forecast_2025Q1.csv"   # use exactly the file name you said
+
+# guard: forecast_final must exist
+if "forecast_final" not in globals():
+    raise RuntimeError("`forecast_final` not found in memory. Run prior cells that create `forecast_final` first.")
+
+# check file presence
+p = Path(ARIMA_FILE)
+if not p.exists():
+    raise RuntimeError(f"ARIMA file not found at path: {ARIMA_FILE}")
+
+# read file
+arima_df = pl.read_csv(p)
+
+# normalize column names to expected ones (lowercase)
+arima_df = arima_df.rename({c: c.lower() for c in arima_df.columns})
+
+required_cols = {"key", "periods", "so_nw_ct", "pred"}
+missing = required_cols - set(arima_df.columns)
+if missing:
+    raise RuntimeError(f"ARIMA file is missing expected columns: {missing}. Found: {arima_df.columns}")
+
+# normalize periods to "YYYY MM" if necessary (common variants handled)
+# Examples handled: "2025-01", "2025_01", "202501", "2025 01"
+def normalize_periods(pol_df, col="periods"):
+    s = pol_df[col].cast(pl.Utf8)
+    # 1) replace '-' or '_' with space
+    s = s.str.replace("-", " ").str.replace("_", " ")
+    # 2) if format is "YYYYMM" (6 digits) -> insert space
+    s = pl.when(s.str.lengths() == 6).then(s.str.slice(0,4) + " " + s.str.slice(4,6)).otherwise(s)
+    return s
+
+arima_df = arima_df.with_columns(
+    normalize_periods(arima_df, "periods").alias("periods")
+)
+
+# cast pred to float
+arima_df = arima_df.with_columns(pl.col("pred").cast(pl.Float64))
+
+# diagnostic: unique periods in arima vs forecast_final
+arima_periods = arima_df.select(pl.col("periods").unique().alias("arima_periods"))
+ff_periods = forecast_final.select(pl.col("periods").unique().alias("ff_periods"))
+
+print("ARIMA rows read:", arima_df.height)
+print("Unique ARIMA periods (sample):")
+display(arima_periods.head(20).to_pandas())
+
+print("Sample forecast_final periods (sample):")
+display(ff_periods.head(20).to_pandas())
+
+# perform left join on key + periods to attach pred
+forecast_with_arima = forecast_final.join(
+    arima_df.select(["key", "periods", "pred"]),
+    on=["key", "periods"],
+    how="left"
+).with_columns(
+    pl.col("pred").alias("arima_pred")  # keep original name `pred` and also alias to arima_pred
+)
+
+# diagnostics: how many rows got a join hit
+total_rows = forecast_with_arima.height
+with_pred = forecast_with_arima.filter(pl.col("arima_pred").is_not_null()).height
+without_pred = total_rows - with_pred
+
+print(f"Joined forecast_final rows: {total_rows}")
+print(f"Rows with arima_pred (join hit): {with_pred}")
+print(f"Rows without arima_pred (no match in ARIMA file): {without_pred}")
+
+print("\nSample rows where arima_pred is present:")
+display(forecast_with_arima.filter(pl.col("arima_pred").is_not_null()).select(
+    ["key","periods","ma3","final_forecast","arima_pred","so_nw_ct","label"]
+).head(20).to_pandas())
+
+# keep the new frame in memory for next cells
+globals()["forecast_with_arima"] = forecast_with_arima

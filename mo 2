@@ -470,7 +470,65 @@ plt.show()
 
 -------------------------------------------------------------------------------------------------------------------------
 
+# Cell: compute per-key uncapped MAPE for ARIMA, show sample, then pareto filter and >1 filter
+import polars as pl
 
+# guards
+for name in ["forecast_with_arima", "pareto_df"]:
+    if name not in globals():
+        raise RuntimeError(f"`{name}` not found in memory. Run prior cells that produce it.")
+
+# evaluation window (same as MA)
+eval_window = ["2025 01","2025 02","2025 03","2025 04","2025 05","2025 06"]
+
+# compute per-period MAPE (uncapped)
+arima_eval = (
+    forecast_with_arima
+    .filter(pl.col("periods").is_in(eval_window))
+    .with_columns([
+        pl.col("arima_pred").cast(pl.Float64).alias("arima_pred_f"),
+        pl.col("so_nw_ct").cast(pl.Float64).alias("so_nw_ct_f"),
+    ])
+    .with_columns(
+        pl.when(pl.col("so_nw_ct_f") > 0)
+          .then((pl.col("arima_pred_f") - pl.col("so_nw_ct_f")).abs() / pl.col("so_nw_ct_f"))
+          .otherwise(None)
+        .alias("mape_arima")
+    )
+)
+
+# per-key average MAPE
+arima_key_mape = (
+    arima_eval
+    .group_by("key")
+    .agg(
+        pl.col("mape_arima").mean().alias("mape_arima_avg"),
+        pl.count().alias("n_periods")
+    )
+    .sort("mape_arima_avg", descending=True)
+)
+
+print("Per-key MAPE (top 10 by avg mape):")
+display(arima_key_mape.head(10).to_pandas())
+
+print(f"\nTotal keys evaluated: {arima_key_mape.height}")
+
+# Pareto-80 subset (use pareto_df's key list)
+pareto_keys = pareto_df.select("key").to_series().to_list()
+
+arima_pareto = arima_key_mape.filter(pl.col("key").is_in(pareto_keys))
+print(f"Pareto-80 keys evaluated: {arima_pareto.height}")
+display(arima_pareto.head(10).to_pandas())
+
+# Pareto-80 keys with avg MAPE > 1
+bad_pareto = arima_pareto.filter(pl.col("mape_arima_avg") > 1).sort("mape_arima_avg", descending=True)
+print(f"Pareto-80 keys with avg MAPE > 1: {bad_pareto.height}")
+display(bad_pareto.to_pandas())
+
+# keep frames for later reference
+globals()["arima_key_mape"] = arima_key_mape
+globals()["arima_pareto"] = arima_pareto
+globals()["bad_pareto_arima"] = bad_pareto
 
 -------------------------------------------------------------------------------------------------------------------------
 

@@ -759,6 +759,12 @@ arima_eval.select(
     ["so_nw_ct_f","pred_f","mape_arima"]
 ).head(20)
 
+
+arima_key_mape.select([
+    pl.count().alias("keys"),
+    pl.col("mape_arima_avg").filter(pl.col("mape_arima_avg") == 0).count().alias("zero_mape"),
+    pl.col("mape_arima_avg").null_count().alias("null_mape")
+])
 -------------------------------------------------------------------------------------------------------------------------
 
 

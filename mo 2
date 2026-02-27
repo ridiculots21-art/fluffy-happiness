@@ -251,3 +251,36 @@ plt.xlabel("")
 plt.legend(title="pareto80_flag")
 plt.tight_layout()
 plt.show()
+
+
+
+
+
+
+
+# Aggregate for plotting
+plot_df = (
+    eval_key_df
+    .group_by("pareto80_flag")
+    .agg([
+        pl.col("mape_ma_avg").mean().alias("MA3"),
+        pl.col("mape_adj_avg").mean().alias("MA3_Adjusted")
+    ])
+    .sort("pareto80_flag")
+    .to_pandas()
+)
+
+# Plot
+ax = plot_df.set_index("pareto80_flag").plot(
+    kind="bar",
+    figsize=(8,5)
+)
+
+ax.set_title("MA3 vs March Adjusted MAPE\nPareto vs Non-Pareto")
+ax.set_ylabel("Average MAPE")
+ax.set_xticks([0,1])
+ax.set_xticklabels(["Non Pareto", "Pareto"], rotation=0)
+ax.legend(["MA3 Baseline", "MA3 Adjusted"])
+
+plt.tight_layout()
+plt.show()

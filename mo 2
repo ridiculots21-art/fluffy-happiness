@@ -1,32 +1,13 @@
-# Cell 1: extract final_forecast for lebaran (exclude 2025)
-import polars as pl
-
-# ensure forecast_final exists in memory
-if "forecast_final" not in globals():
-    raise RuntimeError("`forecast_final` not found in memory. Run prior cells that create `forecast_final` first.")
-
-leb_final_df = forecast_final.filter(
-    (pl.col("label") == "leb") &
-    (~pl.col("periods").str.contains("2025"))   # exclude any period in 2025
+leb_2025_df = forecast_final.filter(
+    pl.col("periods") == "2025 03"
 ).select([
     "key",
     "periods",
-    "lebaran_year",       # present when join with lebaran_period_map occurred
     "label",
     "ma3",
     "final_forecast",
     "so_nw_ct"
-]).sort(["key", "periods"])
+]).sort("key")
 
-# quick verification
-print("Lebaran final_forecast rows (excluding 2025):", leb_final_df.height)
-leb_final_df.head(20)
-
-
-
-
-forecast_final.select(pl.col("label").unique()).sort("label")
-
-forecast_final.select(pl.col("periods").unique()).sort("periods").head(20)
-
-forecast_final.filter(pl.col("label") == "leb").head(20)
+print("Rows:", leb_2025_df.height)
+leb_2025_df.head(20)

@@ -363,7 +363,6 @@ def debug_key(key, df, test_period, train_window_months=None):
 
 
 
-
 top10_sales_keys = (
     arima_df
     .group_by("key")
@@ -372,14 +371,40 @@ top10_sales_keys = (
     .head(10)
 )
 
-top10_sales_keys
+display(top10_sales_keys.to_pandas())
 
 
 
 top10_mape_keys = (
-    mape_per_key
+    bad_pareto_arima
     .sort("mape_arima_avg", descending=True)
     .head(10)
 )
 
-top10_mape_keys
+display(top10_mape_keys.to_pandas())
+
+
+
+print("\nTop 10 Keys by Total so_nw_ct:\n")
+for k in top10_sales_keys["key"]:
+    print(k)
+
+
+
+print("\nTop 10 Keys by Highest MAPE:\n")
+for k in top10_mape_keys["key"]:
+    print(k)
+
+
+
+old_top_keys = so_fcst_df.group_by("key").agg(
+    pl.col("so_nw_ct").sum().alias("hist_total")
+)
+
+arima_totals = arima_df.group_by("key").agg(
+    pl.col("so_nw_ct").sum().alias("arima_total")
+)
+
+compare = old_top_keys.join(arima_totals, on="key", how="inner")
+
+display(compare.sort("hist_total", descending=True).head(20).to_pandas())

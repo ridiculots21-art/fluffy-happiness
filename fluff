@@ -346,3 +346,40 @@ def debug_key(key, df, test_period, train_window_months=None):
     print("Prediction:", pred)
     print("Actual:", test_k["so_nw_ct"].values[0])
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+top10_sales_keys = (
+    arima_df
+    .group_by("key")
+    .agg(pl.col("so_nw_ct").sum().alias("total_so_nw_ct"))
+    .sort("total_so_nw_ct", descending=True)
+    .head(10)
+)
+
+top10_sales_keys
+
+
+
+top10_mape_keys = (
+    mape_per_key
+    .sort("mape_arima_avg", descending=True)
+    .head(10)
+)
+
+top10_mape_keys
